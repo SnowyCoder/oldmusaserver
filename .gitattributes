@@ -1,0 +1,12 @@
+ # Basic .gitattributes for a repo.
+* text=auto
+
+# Source files
+# ============
+*.rs		text diff=rust
+*.py 		text diff=python
+*.sh 		text diff=bash
+
+# Binary files
+# ============
+*.bin		binary
