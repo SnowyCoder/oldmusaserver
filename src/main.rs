@@ -19,7 +19,7 @@ fn main() -> std::io::Result<()> {
     let password_secret_key = expect_env_var("PASSWORD_SECRET_KEY");
 
     let root_default_password = expect_env_var("ROOT_DEFAULT_PASSWORD");
-    let root_password_override = std::env::var("ROOT_DEFAULT_PASSWORD").map(|x| x.len() > 0).unwrap_or(false);
+    let root_password_override = std::env::var("ROOT_PASSWORD_OVERRIDE").map(|x| x.len() > 0).unwrap_or(false);
 
     // create db connection pool
     let data = AppData::new(password_secret_key, database_url, sensor_database_url);
@@ -42,10 +42,7 @@ fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             // limit the maximum amount of data that server will accept
             .data(web::JsonConfig::default().limit(4096))
-            .service(
-                web::scope("/api")
-                    .configure(graphql_service::config)
-            )
+            .configure(api_service::config)
             .service(web::resource("/stest").route(web::get().to(test_sensor)))
     })
         .bind("0.0.0.0:8080")?

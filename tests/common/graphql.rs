@@ -179,7 +179,7 @@ impl<S, B, E> GraphQlTester for GraphQlTesterImpl<S, B, E>
             self.cookies = jar.clone();
         } else {
             self.data.setup_root_password("password".to_string(), true).unwrap();
-            self.submit(query(r#"mutation { login(auth: {username: "root", password: "password" }) { id }}"#));
+            self.submit(query(r#"mutation { login(auth: { username: "root", password: "password" }) { id } }"#));
             global_cookiejar.replace(Some(self.cookies.clone()));
         }
     }
@@ -214,7 +214,7 @@ pub fn init_app() -> impl GraphQlTester {
                 CookieIdentityPolicy::new(&[41; 32]) // <- create cookie identity policy
                     .name("auth-cookie")
                     .secure(false)))
-            .configure(graphql_service::config)
+            .configure(api_service::config)
     );
 
     GraphQlTesterImpl {
@@ -226,7 +226,7 @@ pub fn init_app() -> impl GraphQlTester {
 
 fn graphql_request<R: Into<GraphQLRequest>>(request: R, cookies: &CookieJar) -> Request<PayloadStream> {
     let mut partial = test::TestRequest::post()
-        .uri("/graphql")
+        .uri("/api/graphql")
         .header(header::CONTENT_TYPE, "application/json")
         .set_json(&request.into());
 

@@ -241,3 +241,99 @@ impl AuthCache {// TODO, implement a cache
     }
 }
 
+pub trait PermissionCheckable {
+    fn ensure_admin(&self) -> ServiceResult<()>;
+
+    fn ensure_site_visible(&self, ctx: &AppData, site_id: i32) -> ServiceResult<()>;
+
+    fn ensure_sensor_visible(&self, ctx: &AppData, sensor_id: i32) -> ServiceResult<()>;
+
+    fn ensure_channel_visible(&self, ctx: &AppData, channel_id: i32) -> ServiceResult<()>;
+}
+
+impl PermissionCheckable for User {
+    fn ensure_admin(&self) -> Result<(), ServiceError> {
+        if PermissionType::from_char(self.permission.as_str()).unwrap_or(PermissionType::User) != PermissionType::Admin {
+            Err(ServiceError::Unauthorized)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_site_visible(&self, ctx: &AppData, site_id: i32) -> ServiceResult<()> {
+        use crate::schema::user_access::dsl;
+        if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
+            return Ok(())
+        }
+        let conn = ctx.pool.get()?;
+
+        let count: i64 = dsl::user_access.count()
+            .filter(dsl::user_id.eq(self.id))
+            .filter(dsl::site_id.eq(site_id))
+            .get_result(&conn)?;
+
+        if count == 0 {
+            Err(ServiceError::NotFound("Site".to_string()))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_sensor_visible(&self, ctx: &AppData, sensor_id: i32) -> ServiceResult<()> {
+        use crate::schema::user_access::dsl;
+        use crate::schema::sensor::dsl as sensor_dsl;
+        if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
+            return Ok(())
+        }
+        let conn = ctx.pool.get()?;
+
+        let site_id = sensor_dsl::sensor
+            .find(sensor_id)
+            .select(sensor_dsl::site_id)
+            .single_value();
+
+        let count: i64 = dsl::user_access.count()
+            .filter(dsl::user_id.eq(self.id))
+            .filter(dsl::site_id.nullable().eq(site_id))
+            .get_result(&conn)?;
+
+        if count == 0 {
+            Err(ServiceError::NotFound("Sensor".to_string()))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn ensure_channel_visible(&self, ctx: &AppData, channel_id: i32) -> ServiceResult<()> {
+        use crate::schema::user_access::dsl;
+        use crate::schema::sensor::dsl as sensor_dsl;
+        use crate::schema::channel::dsl as channel_dsl;
+        if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
+            return Ok(())
+        }
+        let conn = ctx.pool.get()?;
+
+        let sensor_id = channel_dsl::channel
+            .find(channel_id)
+            .select(channel_dsl::sensor_id)
+            .single_value();
+
+        let site_id = sensor_dsl::sensor
+            .filter(sensor_dsl::id.nullable().eq(sensor_id))
+            .select(sensor_dsl::site_id)
+            .single_value();
+
+        let count: i64 = dsl::user_access.count()
+            .filter(dsl::user_id.eq(self.id))
+            .filter(dsl::site_id.nullable().eq(site_id))
+            .get_result(&conn)?;
+
+        if count == 0 {
+            Err(ServiceError::NotFound("Channel".to_string()))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+

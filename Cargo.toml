@@ -8,6 +8,7 @@ edition = "2018"
 [dependencies]
 actix-identity = "0.1"
 actix-web = "1.0"
+actix-files = "0.1"
 argonautica = { version = "0.2", features=["simd"] }
 chrono = { version = "0.4", features = ["serde"] }
 derive_more = "0.15"
@@ -29,3 +30,4 @@ hex = "0.4"
 
 [dev-dependencies]
 rand = "0.7"
+actix-http = "0.2"

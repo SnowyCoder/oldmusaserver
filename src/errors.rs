@@ -1,6 +1,8 @@
 use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as DBError};
 use juniper::FieldError;
+use actix_web::{ResponseError, web::HttpResponse, http::StatusCode};
+use std::convert::Into;
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -96,6 +98,20 @@ impl From<DBError> for ServiceError {
 impl From<r2d2::Error> for ServiceError {
     fn from(error: r2d2::Error) -> ServiceError {
         ServiceError::InternalServerError(format!("Pool error: {}", error))
+    }
+}
+
+impl ResponseError for ServiceError {
+    fn error_response(&self) -> HttpResponse {
+        match self {
+            ServiceError::InternalServerError(x) => HttpResponse::InternalServerError().message_body(x.into()),
+            ServiceError::BadRequest(x) => HttpResponse::BadRequest().message_body(x.into()),
+            ServiceError::NotFound(x) => HttpResponse::NotFound().message_body(format!("{} Not Found", x).into()),
+            ServiceError::Unauthorized => HttpResponse::new(StatusCode::FORBIDDEN),
+            ServiceError::WrongPassword => HttpResponse::Unauthorized().message_body("Wrong Password".into()),
+            ServiceError::LoginRequired => HttpResponse::Unauthorized().message_body("Login required".into()),
+            ServiceError::AlreadyPresent(x) => HttpResponse::BadRequest().message_body(format!("{} Already Present", x).into()),
+        }
     }
 }
 

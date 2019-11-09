@@ -52,11 +52,3 @@ pub fn graphiql() -> HttpResponse {
         .content_type("text/html; charset=utf-8")
         .body(html)
 }
-
-pub fn config(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/")
-            .service(web::resource("/graphql").route(web::post().to_async(graphql)))
-            .service(web::resource("/graphiql").route(web::get().to(graphiql)))
-    );
-}

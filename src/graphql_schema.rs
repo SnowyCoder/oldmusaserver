@@ -17,6 +17,7 @@ use crate::AppData;
 use crate::errors::{ServiceError, ServiceResult};
 use crate::models::{Channel, PermissionType, Sensor, Site, User, UserAccess, FcmUserContact};
 use crate::schema::*;
+use crate::security::PermissionCheckable;
 use std::string::ToString;
 
 pub struct Context {
@@ -42,101 +43,6 @@ impl Context {
 }
 
 impl juniper::Context for Context {}
-
-trait PermissionCheckable {
-    fn ensure_admin(&self) -> ServiceResult<()>;
-
-    fn ensure_site_visible(&self, ctx: &Context, site_id: i32) -> ServiceResult<()>;
-
-    fn ensure_sensor_visible(&self, ctx: &Context, sensor_id: i32) -> ServiceResult<()>;
-
-    fn ensure_channel_visible(&self, ctx: &Context, channel_id: i32) -> ServiceResult<()>;
-}
-
-impl PermissionCheckable for User {
-    fn ensure_admin(&self) -> Result<(), ServiceError> {
-        if PermissionType::from_char(self.permission.as_str()).unwrap_or(PermissionType::User) != PermissionType::Admin {
-            Err(ServiceError::Unauthorized)
-        } else {
-            Ok(())
-        }
-    }
-
-    fn ensure_site_visible(&self, ctx: &Context, site_id: i32) -> ServiceResult<()> {
-        use crate::schema::user_access::dsl;
-        if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
-            return Ok(())
-        }
-        let conn = ctx.get_connection()?;
-
-        let count: i64 = dsl::user_access.count()
-            .filter(dsl::user_id.eq(self.id))
-            .filter(dsl::site_id.eq(site_id))
-            .get_result(&conn)?;
-
-        if count == 0 {
-            Err(ServiceError::NotFound("Site".to_string()))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn ensure_sensor_visible(&self, ctx: &Context, sensor_id: i32) -> ServiceResult<()> {
-        use crate::schema::user_access::dsl;
-        use crate::schema::sensor::dsl as sensor_dsl;
-        if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
-            return Ok(())
-        }
-        let conn = ctx.get_connection()?;
-
-        let site_id = sensor_dsl::sensor
-            .find(sensor_id)
-            .select(sensor_dsl::site_id)
-            .single_value();
-
-        let count: i64 = dsl::user_access.count()
-            .filter(dsl::user_id.eq(self.id))
-            .filter(dsl::site_id.nullable().eq(site_id))
-            .get_result(&conn)?;
-
-        if count == 0 {
-            Err(ServiceError::NotFound("Sensor".to_string()))
-        } else {
-            Ok(())
-        }
-    }
-
-    fn ensure_channel_visible(&self, ctx: &Context, channel_id: i32) -> ServiceResult<()> {
-        use crate::schema::user_access::dsl;
-        use crate::schema::sensor::dsl as sensor_dsl;
-        use crate::schema::channel::dsl as channel_dsl;
-        if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
-            return Ok(())
-        }
-        let conn = ctx.get_connection()?;
-
-        let sensor_id = channel_dsl::channel
-            .find(channel_id)
-            .select(channel_dsl::sensor_id)
-            .single_value();
-
-        let site_id = sensor_dsl::sensor
-            .filter(sensor_dsl::id.nullable().eq(sensor_id))
-            .select(sensor_dsl::site_id)
-            .single_value();
-
-        let count: i64 = dsl::user_access.count()
-            .filter(dsl::user_id.eq(self.id))
-            .filter(dsl::site_id.nullable().eq(site_id))
-            .get_result(&conn)?;
-
-        if count == 0 {
-            Err(ServiceError::NotFound("Channel".to_string()))
-        } else {
-            Ok(())
-        }
-    }
-}
 
 fn load_user_sites(ctx: &Context, user_id: i32) -> ServiceResult<Vec<Site>> {
     use crate::schema::user_access::dsl as user_access;
@@ -369,7 +275,7 @@ impl QueryRoot {
         use crate::schema::site::dsl;
 
         let user = ctx.parse_user_required()?;
-        user.ensure_site_visible(ctx, id)?;// TODO: single query?
+        user.ensure_site_visible(&ctx.app, id)?;// TODO: single query?
 
         let conn = ctx.get_connection()?;
 
@@ -385,7 +291,7 @@ impl QueryRoot {
         use crate::schema::sensor::dsl;
 
         let user = ctx.parse_user_required()?;
-        user.ensure_sensor_visible(ctx, id)?;
+        user.ensure_sensor_visible(&ctx.app, id)?;
 
         let conn = ctx.get_connection()?;
 
@@ -401,7 +307,7 @@ impl QueryRoot {
         use crate::schema::channel::dsl;
 
         let user = ctx.parse_user_required()?;
-        user.ensure_channel_visible(ctx, id)?;
+        user.ensure_channel_visible(&ctx.app, id)?;
 
         let conn = ctx.get_connection()?;
 

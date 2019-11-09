@@ -18,9 +18,11 @@ use crate::errors::ServiceResult;
 use crate::models::PermissionType;
 use diesel::prelude::*;
 
+pub mod api_service;
 pub mod errors;
 pub mod graphql_schema;
 pub mod graphql_service;
+pub mod site_map_service;
 pub mod schema;
 pub mod schema_sensor;
 pub mod models;
