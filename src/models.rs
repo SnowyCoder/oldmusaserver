@@ -40,25 +40,12 @@ pub struct User {
     pub permission: String,
 }
 
-/*impl User {
-    pub fn id(&self) -> i32 {
-        self.id
-    }
-
-    pub fn username(&self) -> &str {
-        self.username.as_str()
-    }
-
-    pub fn permission(&self) -> char {
-        self.permission
-    }
-}*/
-
 #[derive(Debug, Queryable)]
 pub struct Site {
     pub id: i32,
     pub name: Option<String>,
     pub id_cnr: Option<String>,
+    pub clock: chrono::NaiveDateTime,
 }
 
 
@@ -68,16 +55,6 @@ pub struct UserAccess {
     pub user_id: i32,
     pub site_id: i32,
 }
-
-/*impl UserAccess {
-    pub fn user_id(&self) -> i32 {
-        return self.user_id
-    }
-
-    pub fn site_id(&self) -> i32 {
-        self.site_id
-    }
-}*/
 
 #[derive(Debug, Queryable, Insertable)]
 #[table_name="sensor"]
@@ -92,7 +69,6 @@ pub struct Sensor {
     pub loc_y: Option<i32>,
 
     pub enabled: bool,
-    pub status: String,
 }
 
 #[derive(Debug, Queryable, Insertable)]
@@ -108,6 +84,8 @@ pub struct Channel {
 
     pub range_min: Option<BigDecimal>,
     pub range_max: Option<BigDecimal>,
+
+    pub alarmed: bool,
 }
 
 #[derive(Debug, Queryable, Insertable)]

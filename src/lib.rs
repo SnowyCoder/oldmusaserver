@@ -1,28 +1,26 @@
 #[macro_use]
 extern crate diesel;
+#[macro_use]
+extern crate diesel_migrations;
 extern crate dotenv;
 #[macro_use]
 extern crate juniper;
 
-#[macro_use]
-extern crate diesel_migrations;
-
 use std::sync::Arc;
 
-use actix_web::{HttpResponse, web};
+use actix_web::HttpResponse;
 use diesel::PgConnection;
+use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
 
-use crate::graphql_schema::{create_schema, Schema};
-use crate::errors::ServiceResult;
-use crate::models::PermissionType;
-use diesel::prelude::*;
+pub use web::api_service;
 
-pub mod api_service;
-pub mod errors;
-pub mod graphql_schema;
-pub mod graphql_service;
-pub mod site_map_service;
+use crate::models::PermissionType;
+use crate::web::errors::ServiceResult;
+use crate::web::graphql_schema::{create_schema, Schema};
+
+pub mod alarm;
+pub mod web;
 pub mod schema;
 pub mod schema_sensor;
 pub mod models;
@@ -90,7 +88,7 @@ impl AppData {
 }
 
 
-fn get_test_sensor_data(ctx: web::Data<AppData>) -> Result<String, mysql::error::Error> {
+fn get_test_sensor_data(ctx: actix_web::web::Data<AppData>) -> Result<String, mysql::error::Error> {
     let result = ctx.sensor_pool.prep_exec("SELECT valore_min FROM t_rilevamento_dati LIMIT 100;", ());
 
     let datas: Vec<f64> = result.map(|qres| {
@@ -104,7 +102,7 @@ fn get_test_sensor_data(ctx: web::Data<AppData>) -> Result<String, mysql::error:
 }
 
 pub fn test_sensor(
-    ctx: web::Data<AppData>
+    ctx: actix_web::web::Data<AppData>
 ) -> HttpResponse {
     let res: String =  match get_test_sensor_data(ctx) {
         Ok(s) => s,

@@ -1,7 +1,7 @@
 use actix_web::web;
 
-use crate::graphql_service::{graphiql, graphql};
-use crate::site_map_service::{image_delete, image_download, image_upload};
+use super::graphql_service::{graphiql, graphql};
+use super::site_map_service::{image_delete, image_download, image_upload};
 
 pub fn config(cfg: &mut web::ServiceConfig) {
     cfg.service(

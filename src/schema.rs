@@ -7,6 +7,7 @@ table! {
         measure_unit -> Nullable<Varchar>,
         range_min -> Nullable<Numeric>,
         range_max -> Nullable<Numeric>,
+        alarmed -> Bool,
     }
 }
 
@@ -26,7 +27,6 @@ table! {
         loc_x -> Nullable<Int4>,
         loc_y -> Nullable<Int4>,
         enabled -> Bool,
-        status -> Varchar,
     }
 }
 
@@ -35,6 +35,7 @@ table! {
         id -> Int4,
         name -> Nullable<Varchar>,
         id_cnr -> Nullable<Varchar>,
+        clock -> Timestamp,
     }
 }
 

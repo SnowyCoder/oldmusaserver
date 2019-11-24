@@ -2,9 +2,12 @@ extern crate dotenv;
 
 use std::cell::RefCell;
 use std::ops::Deref;
+use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use bigdecimal::{BigDecimal, ToPrimitive};
+use chrono::Utc;
+use derive_more::Display;
 use diesel::{
     pg::PgConnection,
     prelude::*,
@@ -14,11 +17,11 @@ use juniper::RootNode;
 use r2d2::PooledConnection;
 
 use crate::AppData;
-use crate::errors::{ServiceError, ServiceResult};
-use crate::models::{Channel, PermissionType, Sensor, Site, User, UserAccess, FcmUserContact};
+use crate::models::{Channel, FcmUserContact, PermissionType, Sensor, Site, User, UserAccess};
 use crate::schema::*;
 use crate::security::PermissionCheckable;
-use std::string::ToString;
+
+use super::errors::{ServiceError, ServiceResult};
 
 pub struct Context {
     pub app: Arc<AppData>,
@@ -44,6 +47,14 @@ impl Context {
 
 impl juniper::Context for Context {}
 
+#[derive(Debug, Display, juniper::GraphQLEnum, PartialEq)]
+pub enum SensorStateType {
+    Ok,
+    Disabled,
+    Alarm,
+    Error,
+}
+
 fn load_user_sites(ctx: &Context, user_id: i32) -> ServiceResult<Vec<Site>> {
     use crate::schema::user_access::dsl as user_access;
     use crate::schema::site::dsl as site_dsl;
@@ -52,7 +63,7 @@ fn load_user_sites(ctx: &Context, user_id: i32) -> ServiceResult<Vec<Site>> {
 
     Ok(user_access::user_access.filter(user_access::user_id.eq(user_id))
         .inner_join(site_dsl::site)
-        .select((site_dsl::id, site_dsl::name, site_dsl::id_cnr))
+        .select((site_dsl::id, site_dsl::name, site_dsl::id_cnr, site_dsl::clock))
         .load::<Site>(&conn)?)
 }
 
@@ -166,8 +177,25 @@ impl Sensor {
         self.enabled
     }
 
-    pub fn status(&self) -> &str {
-        self.status.as_str()
+    pub fn status(&self, ctx: &Context) -> ServiceResult<SensorStateType> {
+        use crate::schema::channel::dsl::*;
+
+        if !self.enabled {
+            return Ok(SensorStateType::Disabled)
+        }
+
+        let connection = ctx.get_connection()?;
+
+        let alarmed_count: i64 = channel.count()
+            .filter(sensor_id.eq(self.id))
+            .filter(alarmed.eq(true))
+            .get_result(&connection)?;
+
+        if alarmed_count > 0 {
+            return Ok(SensorStateType::Alarm)
+        }
+
+        Ok(SensorStateType::Ok)
     }
 
     pub fn site(&self, ctx: &Context) -> ServiceResult<Site> {
@@ -177,7 +205,6 @@ impl Sensor {
     }
 
     pub fn channels(&self, ctx: &Context) -> ServiceResult<Vec<Channel>> {
-
         use crate::schema::channel::dsl::*;
         let connection = ctx.get_connection()?;
         // TODO: paging
@@ -218,6 +245,10 @@ impl Channel {
 
     pub fn range_max(&self) -> Option<f64> {
         self.range_max.as_ref().and_then(|x| x.to_f64())
+    }
+
+    pub fn alarmed(&self) -> bool {
+        self.alarmed
     }
 
     pub fn sensor(&self, ctx: &Context) -> ServiceResult<Sensor> {
@@ -355,6 +386,7 @@ pub struct SensorInput {
     pub id_cnr: Option<String>,
 
     pub name: Option<String>,
+    pub enabled: Option<bool>,
 
     pub loc_x: Option<i32>,
     pub loc_y: Option<i32>,
@@ -510,8 +542,10 @@ impl MutationRoot {
         ctx.parse_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
+        let now = Utc::now().naive_utc();
+
         Ok(diesel::insert_into(site)
-            .values(data)
+            .values((data, clock.eq(now)))
             .get_result::<Site>(&conn)?)
     }
 

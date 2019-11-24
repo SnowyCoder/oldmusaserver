@@ -6,7 +6,9 @@ use actix_web::{Error, HttpResponse, web};
 use futures::future::Future;
 use juniper::http::{graphiql::graphiql_source, GraphQLRequest};
 
-use crate::{AppData, graphql_schema};
+use crate::AppData;
+
+use super::graphql_schema;
 
 pub fn graphql(
     ctx: web::Data<AppData>,

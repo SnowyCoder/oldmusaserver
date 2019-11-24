@@ -1,13 +1,12 @@
 use argonautica::{Hasher, Verifier};
 use chrono::{prelude::*, Utc};
 use diesel::{prelude::*, result::DatabaseErrorKind, result::Error as DBError};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 use crate::AppData;
-use crate::errors::{ServiceError, ServiceResult};
 use crate::models::{PermissionType, User, UserAccess};
 use crate::schema::user_account;
-
+use crate::web::errors::{ServiceError, ServiceResult};
 
 pub fn hash_password(secret_key: &str, password: &str) -> Result<String, ServiceError> {
     Hasher::default()

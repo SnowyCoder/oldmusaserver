@@ -1,4 +1,4 @@
-
+use actix::prelude::*;
 use actix_identity::{CookieIdentityPolicy, IdentityService};
 use actix_web::{App, HttpServer, middleware, web};
 
@@ -10,7 +10,6 @@ fn expect_env_var(name: &str) -> String {
 
 fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
-    std::env::set_var("RUST_LOG", "actix_web=info,actix_server=info");
     env_logger::init();
 
     let database_url = expect_env_var("DATABASE_URL");
@@ -27,6 +26,16 @@ fn main() -> std::io::Result<()> {
 
     data.setup_migrations().unwrap();
     data.setup_root_password(root_default_password, root_password_override).unwrap();
+
+    let system = actix_rt::System::builder()
+        .name("root")
+        .stop_on_panic(false)
+        .build();
+
+    let actor = alarm::AlarmActor {
+        app_data: data.clone()
+    };
+    actor.start();
 
     // Start http server
     HttpServer::new(move || {
@@ -46,5 +55,7 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/stest").route(web::get().to(test_sensor)))
     })
         .bind("0.0.0.0:8080")?
-        .run()
+        .start();
+
+    system.run()
 }

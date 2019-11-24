@@ -11,6 +11,7 @@ CREATE TABLE site (
 	id SERIAL NOT NULL,
 	name VARCHAR(100),
 	id_cnr VARCHAR(50),
+	clock TIMESTAMP NOT NULL,
 	PRIMARY KEY (id)
 );
 
@@ -30,7 +31,6 @@ CREATE TABLE sensor (
 	loc_x INTEGER,
 	loc_y INTEGER,
 	enabled BOOLEAN NOT NULL DEFAULT false,
-	status VARCHAR(100) NOT NULL DEFAULT 'ok',
 	PRIMARY KEY (id),
 	FOREIGN KEY(site_id) REFERENCES site (id) ON DELETE CASCADE
 );
@@ -50,6 +50,9 @@ CREATE TABLE channel (
 	measure_unit VARCHAR(50),
 	range_min NUMERIC,
 	range_max NUMERIC,
+
+	alarmed BOOLEAN NOT NULL DEFAULT FALSE,
+
 	PRIMARY KEY (id),
 	FOREIGN KEY(sensor_id) REFERENCES sensor (id) ON DELETE CASCADE
 );

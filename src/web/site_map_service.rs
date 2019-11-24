@@ -9,9 +9,10 @@ use actix_web::{error, Error, HttpResponse, web};
 use futures::{future::{Either, err}, Future, Stream};
 
 use crate::AppData;
-use crate::errors::{ServiceError, ServiceResult};
 use crate::models::User;
 use crate::security::PermissionCheckable;
+
+use super::errors::{ServiceError, ServiceResult};
 
 fn get_file_from_site(site_id: i32) -> std::io::Result<PathBuf> {
     let mut file_path = PathBuf::new();
