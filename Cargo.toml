@@ -1,5 +1,5 @@
 [package]
-name = "oldmusa_server_rust"
+name = "oldmusa_server"
 version = "0.1.0"
 authors = ["Rossi Lorenzo <snowycoder@gmail.com>"]
 edition = "2018"

@@ -6,7 +6,7 @@ use actix_web::dev::{PayloadStream, Service, ServiceResponse};
 use actix_web::http::header;
 use juniper::DefaultScalarValue;
 use juniper::http::GraphQLRequest;
-use oldmusa_server_rust::*;
+use oldmusa_server::*;
 use rand::Rng;
 use serde::Deserialize;
 use serde_json::json;

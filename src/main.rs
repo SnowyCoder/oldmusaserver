@@ -2,7 +2,7 @@ use actix::prelude::*;
 use actix_identity::{CookieIdentityPolicy, IdentityService};
 use actix_web::{App, HttpServer, middleware, web};
 
-use oldmusa_server_rust::*;
+use oldmusa_server::*;
 
 fn expect_env_var(name: &str) -> String {
     std::env::var(name).expect(format!("{} must be set", name).as_str())
