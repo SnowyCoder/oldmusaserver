@@ -16,6 +16,7 @@ use mysql::error::Error as MysqlError;
 use mysql::error::Result as MysqlResult;
 use mysql::params;
 
+use crate::models::IdType;
 use crate::schema::site;
 
 type Connection = PgConnection;
@@ -80,12 +81,12 @@ fn load_channel_data(cnr_id: &str, clock: NaiveDateTime, conn: &mysql::Pool) -> 
 }
 
 #[derive(Debug, Queryable)]
-pub struct SiteClockData(i32, Option<String>, NaiveDateTime);
+pub struct SiteClockData(IdType, Option<String>, NaiveDateTime);
 
 #[derive(Debug, Insertable)]
 #[table_name = "site"]
 pub struct SiteClockUpdateData {
-    pub id: i32,
+    pub id: IdType,
     pub clock: chrono::NaiveDateTime,
 }
 
@@ -139,10 +140,10 @@ pub fn save_site_clocks(conn: &Connection, clocks: &Vec<SiteClockUpdateData>) ->
 
 #[derive(Queryable)]
 struct ChannelAlarmDataRaw {
-    site_id: i32,
-    sensor_id: i32,
+    site_id: IdType,
+    sensor_id: IdType,
     sensor_cnr_id: Option<String>,
-    channel_id: i32,
+    channel_id: IdType,
     channel_cnr_id: Option<String>,
     range_min: Option<BigDecimal>,
     range_max: Option<BigDecimal>,
@@ -150,10 +151,10 @@ struct ChannelAlarmDataRaw {
 
 #[derive(Debug)]
 struct ChannelAlarmData {
-    site_id: i32,
-    sensor_id: i32,
+    site_id: IdType,
+    sensor_id: IdType,
     sensor_cnr_id: String,
-    channel_id: i32,
+    channel_id: IdType,
     channel_cnr_id: String,
     range_min: f64,
     range_max: f64,
@@ -191,7 +192,7 @@ fn load_channels_alarm_data(conn: &Connection) -> QueryResult<Vec<ChannelAlarmDa
 
 #[derive(Queryable)]
 struct AlarmedChannelDataRaw {
-    channel_id: i32,
+    channel_id: IdType,
     site_cnr_id: Option<String>,
     sensor_cnr_id: Option<String>,
     channel_cnr_id: Option<String>,
@@ -200,7 +201,7 @@ struct AlarmedChannelDataRaw {
 }
 
 struct AlarmedChannelData {
-    channel_id: i32,
+    channel_id: IdType,
     site_cnr_id: String,
     sensor_cnr_id: String,
     channel_cnr_id: String,
@@ -243,8 +244,8 @@ fn load_alarmed_data(conn: &Connection) -> QueryResult<Vec<AlarmedChannelData>> 
 pub fn check_measures(conn: &Connection, pool: &mysql::Pool) -> Result<(), DatabaseError> {
     let clocks = load_site_clocks(conn)?;
 
-    let mut clocks_data: Vec<(i32, (f64, f64, NaiveDateTime))> = vec![];
-    let mut channel_data: Vec<(i32, String, Vec<SiteData>)> = vec![];
+    let mut clocks_data: Vec<(IdType, (f64, f64, NaiveDateTime))> = vec![];
+    let mut channel_data: Vec<(IdType, String, Vec<SiteData>)> = vec![];
     let mut updated_clocks: Vec<SiteClockUpdateData> = vec![];
     updated_clocks.reserve(clocks.len());
 
@@ -272,7 +273,7 @@ pub fn check_measures(conn: &Connection, pool: &mysql::Pool) -> Result<(), Datab
     let channels_alarm_data = load_channels_alarm_data(conn)?;
 
     //println!(" alarm data: {:?}", channels_alarm_data);
-    let params_to_alarm_data: HashMap<(i32, &str, &str), &ChannelAlarmData> = channels_alarm_data.iter()
+    let params_to_alarm_data: HashMap<(IdType, &str, &str), &ChannelAlarmData> = channels_alarm_data.iter()
         .map(|x| (
             (x.site_id, x.sensor_cnr_id.as_str(), x.channel_cnr_id.as_str()),
             x
@@ -321,7 +322,7 @@ pub fn check_measures(conn: &Connection, pool: &mysql::Pool) -> Result<(), Datab
     Ok(())
 }
 
-fn alarm_begin(conn: &Connection, channel_id: i32, measure: f64, measure_type: MeasureExtremeType) -> QueryResult<()> {
+fn alarm_begin(conn: &Connection, channel_id: IdType, measure: f64, measure_type: MeasureExtremeType) -> QueryResult<()> {
     use crate::schema::channel::dsl;
     warn!("alarm_begin({} {} {:?})", channel_id, measure, measure_type);
 
@@ -335,7 +336,7 @@ fn alarm_begin(conn: &Connection, channel_id: i32, measure: f64, measure_type: M
     Ok(())
 }
 
-fn alarm_end(conn: &Connection, channel_id: i32) -> QueryResult<()> {
+fn alarm_end(conn: &Connection, channel_id: IdType) -> QueryResult<()> {
     use crate::schema::channel::dsl;
     warn!("alarm_end({})", channel_id);
 

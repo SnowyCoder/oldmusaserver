@@ -17,7 +17,7 @@ use juniper::RootNode;
 use r2d2::PooledConnection;
 
 use crate::AppData;
-use crate::models::{Channel, FcmUserContact, PermissionType, Sensor, Site, User, UserAccess};
+use crate::models::{Channel, FcmUserContact, IdType, PermissionType, Sensor, Site, User, UserAccess};
 use crate::schema::*;
 use crate::security::PermissionCheckable;
 
@@ -55,7 +55,7 @@ pub enum SensorStateType {
     Error,
 }
 
-fn load_user_sites(ctx: &Context, user_id: i32) -> ServiceResult<Vec<Site>> {
+fn load_user_sites(ctx: &Context, user_id: IdType) -> ServiceResult<Vec<Site>> {
     use crate::schema::user_access::dsl as user_access;
     use crate::schema::site::dsl as site_dsl;
 
@@ -72,7 +72,7 @@ fn load_user_sites(ctx: &Context, user_id: i32) -> ServiceResult<Vec<Site>> {
     Context = Context,
 )]
 impl User {
-    pub fn id(&self) -> i32 {
+    pub fn id(&self) -> IdType {
         self.id
     }
 
@@ -84,9 +84,6 @@ impl User {
         PermissionType::from_char(self.permission.as_str()).expect("Wrong permission found!")
     }
 
-
-    // TODO: password management
-
     pub fn sites(&self, ctx: &Context) -> ServiceResult<Vec<Site>> {
         load_user_sites(ctx, self.id)
     }
@@ -97,7 +94,7 @@ impl User {
     Context = Context,
 )]
 impl Site {
-    pub fn id(&self) -> i32 {
+    pub fn id(&self) -> IdType {
         self.id
     }
 
@@ -123,11 +120,11 @@ impl Site {
     Context = Context,
 )]
 impl UserAccess {
-    pub fn user_id(&self) -> i32 {
+    pub fn user_id(&self) -> IdType {
         self.user_id
     }
 
-    pub fn site_id(&self) -> i32 {
+    pub fn site_id(&self) -> IdType {
         self.site_id
     }
 
@@ -149,11 +146,11 @@ impl UserAccess {
     Context = Context,
 )]
 impl Sensor {
-    pub fn id(&self) -> i32 {
+    pub fn id(&self) -> IdType {
         self.id
     }
 
-    pub fn site_id(&self) -> i32 {
+    pub fn site_id(&self) -> IdType {
         self.site_id
     }
 
@@ -218,11 +215,11 @@ impl Sensor {
     Context = Context,
 )]
 impl Channel {
-    pub fn id(&self) -> i32 {
+    pub fn id(&self) -> IdType {
         self.id
     }
 
-    pub fn sensor_id(&self) -> i32 {
+    pub fn sensor_id(&self) -> IdType {
         self.sensor_id
     }
 
@@ -302,7 +299,7 @@ impl QueryRoot {
         Ok(sites)
     }
 
-    fn site(ctx: &Context, id: i32) -> ServiceResult<Site> {
+    fn site(ctx: &Context, id: IdType) -> ServiceResult<Site> {
         use crate::schema::site::dsl;
 
         let user = ctx.parse_user_required()?;
@@ -318,7 +315,7 @@ impl QueryRoot {
         Ok(site)
     }
 
-    fn sensor(ctx: &Context, id: i32) -> ServiceResult<Sensor> {
+    fn sensor(ctx: &Context, id: IdType) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
         let user = ctx.parse_user_required()?;
@@ -334,7 +331,7 @@ impl QueryRoot {
         Ok(site)
     }
 
-    fn channel(ctx: &Context, id: i32) -> ServiceResult<Channel> {
+    fn channel(ctx: &Context, id: IdType) -> ServiceResult<Channel> {
         use crate::schema::channel::dsl;
 
         let user = ctx.parse_user_required()?;
@@ -454,7 +451,7 @@ impl MutationRoot {
         ctx.app.auth_cache.add_user(&ctx.app, data.username, data.password, data.permission)
     }
 
-    fn update_user(ctx: &Context, id: i32, data: UserUpdateInput) -> ServiceResult<User> {
+    fn update_user(ctx: &Context, id: IdType, data: UserUpdateInput) -> ServiceResult<User> {
         let user = ctx.parse_user_required()?;
 
         if id != user.id || data.username.as_ref().is_some() || data.permission.as_ref().is_some() {
@@ -474,7 +471,7 @@ impl MutationRoot {
         Ok(res)
     }
 
-    fn delete_user(ctx: &Context, id: i32) -> ServiceResult<bool> {
+    fn delete_user(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         let user = ctx.parse_user_required()?;
         user.ensure_admin()?;
         if user.id == id {
@@ -484,13 +481,13 @@ impl MutationRoot {
         Ok(true)
     }
 
-    fn give_user_access(ctx: &Context, user_id: i32, site_id: i32) -> ServiceResult<bool> {
+    fn give_user_access(ctx: &Context, user_id: IdType, site_id: IdType) -> ServiceResult<bool> {
         ctx.parse_user_required()?.ensure_admin()?;
         ctx.app.auth_cache.give_access(&ctx.app, user_id, site_id)?;
         Ok(true)
     }
 
-    fn revoke_user_access(ctx: &Context, user_id: i32, site_id: i32) -> ServiceResult<bool> {
+    fn revoke_user_access(ctx: &Context, user_id: IdType, site_id: IdType) -> ServiceResult<bool> {
         ctx.parse_user_required()?.ensure_admin()?;
         ctx.app.auth_cache.revoke_access(&ctx.app, user_id, site_id)?;
         Ok(true)
@@ -549,7 +546,7 @@ impl MutationRoot {
             .get_result::<Site>(&conn)?)
     }
 
-    fn update_site(ctx: &Context, id: i32, data: SiteInput) -> ServiceResult<Site> {
+    fn update_site(ctx: &Context, id: IdType, data: SiteInput) -> ServiceResult<Site> {
         use crate::schema::site::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -561,7 +558,7 @@ impl MutationRoot {
     }
 
     #[graphql(arguments(id(description = "Id of the site to delete")))]
-    fn delete_site(ctx: &Context, id: i32) -> ServiceResult<bool> {
+    fn delete_site(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         use crate::schema::site::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -577,7 +574,7 @@ impl MutationRoot {
         }
     }
 
-    fn add_sensor(ctx: &Context, site_id: i32, data: SensorInput) -> ServiceResult<Sensor> {
+    fn add_sensor(ctx: &Context, site_id: IdType, data: SensorInput) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -588,7 +585,7 @@ impl MutationRoot {
             .get_result::<Sensor>(&conn)?)
     }
 
-    fn update_sensor(ctx: &Context, id: i32, data: SensorInput) -> ServiceResult<Sensor> {
+    fn update_sensor(ctx: &Context, id: IdType, data: SensorInput) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -599,7 +596,7 @@ impl MutationRoot {
             .get_result(&conn)?)
     }
 
-    fn delete_sensor(ctx: &Context, id: i32) -> ServiceResult<bool> {
+    fn delete_sensor(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         use crate::schema::sensor::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -615,7 +612,7 @@ impl MutationRoot {
         }
     }
 
-    fn add_channel(ctx: &Context, sensor_id: i32, data: ChannelInput) -> ServiceResult<Channel> {
+    fn add_channel(ctx: &Context, sensor_id: IdType, data: ChannelInput) -> ServiceResult<Channel> {
         use crate::schema::channel::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -628,7 +625,7 @@ impl MutationRoot {
             .get_result(&conn)?)
     }
 
-    fn update_channel(ctx: &Context, id: i32, data: ChannelInput) -> ServiceResult<Channel> {
+    fn update_channel(ctx: &Context, id: IdType, data: ChannelInput) -> ServiceResult<Channel> {
         use crate::schema::channel::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -641,7 +638,7 @@ impl MutationRoot {
             .get_result(&conn)?)
     }
 
-    fn delete_channel(ctx: &Context, id: i32) -> ServiceResult<bool> {
+    fn delete_channel(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         use crate::schema::channel::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;

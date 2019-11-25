@@ -9,12 +9,12 @@ use actix_web::{error, Error, HttpResponse, web};
 use futures::{future::{Either, err}, Future, Stream};
 
 use crate::AppData;
-use crate::models::User;
+use crate::models::{IdType, User};
 use crate::security::PermissionCheckable;
 
 use super::errors::{ServiceError, ServiceResult};
 
-fn get_file_from_site(site_id: i32) -> std::io::Result<PathBuf> {
+fn get_file_from_site(site_id: IdType) -> std::io::Result<PathBuf> {
     let mut file_path = PathBuf::new();
     file_path.push("site_maps");
     if !file_path.exists() {
@@ -34,11 +34,11 @@ fn ensure_admin(ctx: &AppData, identity: Identity) -> ServiceResult<()> {
     parse_user_required(ctx, identity)?.ensure_admin()
 }
 
-fn ensure_site_visible(ctx: &AppData, identity: Identity, site_id: i32) -> ServiceResult<()> {
+fn ensure_site_visible(ctx: &AppData, identity: Identity, site_id: IdType) -> ServiceResult<()> {
     parse_user_required(ctx, identity)?.ensure_site_visible(ctx, site_id)
 }
 
-pub fn image_download(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<i32>) -> ServiceResult<NamedFile> {
+pub fn image_download(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>) -> ServiceResult<NamedFile> {
     ensure_site_visible(&ctx, identity, *site_id)?;
     let path = get_file_from_site(*site_id)
         .map_err(|x| ServiceError::InternalServerError(x.to_string()))
@@ -53,7 +53,7 @@ pub fn image_download(ctx: web::Data<AppData>, identity: Identity, site_id: web:
     Ok(path)
 }
 
-pub fn image_upload(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<i32>, payload: web::Payload) -> impl Future<Item = HttpResponse, Error = Error> {
+pub fn image_upload(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>, payload: web::Payload) -> impl Future<Item = HttpResponse, Error = Error> {
     if let Err(x) = ensure_admin(&ctx, identity) {
         return Either::A(err(x.into()));
     };
@@ -88,7 +88,7 @@ pub fn image_upload(ctx: web::Data<AppData>, identity: Identity, site_id: web::P
         }))
 }
 
-pub fn image_delete(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<i32>) -> ServiceResult<()> {
+pub fn image_delete(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>) -> ServiceResult<()> {
     ensure_admin(&ctx, identity)?;
     get_file_from_site(*site_id)
         .map_err(|x| ServiceError::InternalServerError(x.to_string()))

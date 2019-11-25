@@ -4,7 +4,7 @@ use diesel::{prelude::*, result::DatabaseErrorKind, result::Error as DBError};
 use serde::{Deserialize, Serialize};
 
 use crate::AppData;
-use crate::models::{PermissionType, User, UserAccess};
+use crate::models::{IdType, PermissionType, User, UserAccess};
 use crate::schema::user_account;
 use crate::web::errors::{ServiceError, ServiceResult};
 
@@ -43,7 +43,7 @@ pub struct UserInputDb {
 
 #[derive(Debug, Serialize, Deserialize)]
 struct IdentityCookie {
-    id: i32,
+    id: IdType,
     timestamp: NaiveDateTime,
 }
 
@@ -86,7 +86,7 @@ impl AuthCache {// TODO, implement a cache
         Ok(dsl::user_account.filter(dsl::username.eq(username)).first::<User>(&conn).optional()?)
     }
 
-    fn find_user_by_id(&self, ctx: &AppData, id: i32) -> ServiceResult<Option<User>> {
+    fn find_user_by_id(&self, ctx: &AppData, id: IdType) -> ServiceResult<Option<User>> {
         use crate::schema::user_account::dsl;
 
         let conn = ctx.pool.get()?;
@@ -106,7 +106,7 @@ impl AuthCache {// TODO, implement a cache
         }
     }
 
-    pub fn update_user(&self, ctx: &AppData, id: i32, username: Option<String>, password: Option<String>, permission: Option<PermissionType>) -> ServiceResult<User> {
+    pub fn update_user(&self, ctx: &AppData, id: IdType, username: Option<String>, password: Option<String>, permission: Option<PermissionType>) -> ServiceResult<User> {
         use crate::schema::user_account::dsl;
 
         let (new_passw_hash, new_change_time) = match password {
@@ -131,7 +131,7 @@ impl AuthCache {// TODO, implement a cache
             .get_result(&conn)?)
     }
 
-    pub fn delete_user(&self, ctx: &AppData, id: i32) -> ServiceResult<()> {
+    pub fn delete_user(&self, ctx: &AppData, id: IdType) -> ServiceResult<()> {
         use crate::schema::user_account::dsl;
         let conn = ctx.pool.get()?;
 
@@ -145,7 +145,7 @@ impl AuthCache {// TODO, implement a cache
         }
     }
 
-    pub fn give_access(&self, ctx: &AppData, user_id: i32, site_id: i32) -> ServiceResult<()> {
+    pub fn give_access(&self, ctx: &AppData, user_id: IdType, site_id: IdType) -> ServiceResult<()> {
         use crate::schema::user_access::dsl;
         let conn = ctx.pool.get()?;
 
@@ -173,7 +173,7 @@ impl AuthCache {// TODO, implement a cache
         }
     }
 
-    pub fn revoke_access(&self, ctx: &AppData, user_id: i32, site_id: i32) -> ServiceResult<()>{
+    pub fn revoke_access(&self, ctx: &AppData, user_id: IdType, site_id: IdType) -> ServiceResult<()>{
         use crate::schema::user_access::dsl;
         let conn = ctx.pool.get()?;
 
@@ -189,7 +189,7 @@ impl AuthCache {// TODO, implement a cache
         }
     }
 
-    pub fn has_access(&self, ctx: &AppData, user_id: i32, site_id: i32) -> ServiceResult<bool> {
+    pub fn has_access(&self, ctx: &AppData, user_id: IdType, site_id: IdType) -> ServiceResult<bool> {
         use crate::schema::user_access::dsl;
         let conn = ctx.pool.get()?;
 
@@ -206,7 +206,7 @@ impl AuthCache {// TODO, implement a cache
         })
     }
 
-    pub fn ensure_access(&self, ctx: &AppData, user_id: i32, site_id: i32) -> ServiceResult<()> {
+    pub fn ensure_access(&self, ctx: &AppData, user_id: IdType, site_id: IdType) -> ServiceResult<()> {
         if !self.has_access(ctx, user_id, site_id)? {
             Err(ServiceError::Unauthorized)
         } else {
@@ -243,11 +243,11 @@ impl AuthCache {// TODO, implement a cache
 pub trait PermissionCheckable {
     fn ensure_admin(&self) -> ServiceResult<()>;
 
-    fn ensure_site_visible(&self, ctx: &AppData, site_id: i32) -> ServiceResult<()>;
+    fn ensure_site_visible(&self, ctx: &AppData, site_id: IdType) -> ServiceResult<()>;
 
-    fn ensure_sensor_visible(&self, ctx: &AppData, sensor_id: i32) -> ServiceResult<()>;
+    fn ensure_sensor_visible(&self, ctx: &AppData, sensor_id: IdType) -> ServiceResult<()>;
 
-    fn ensure_channel_visible(&self, ctx: &AppData, channel_id: i32) -> ServiceResult<()>;
+    fn ensure_channel_visible(&self, ctx: &AppData, channel_id: IdType) -> ServiceResult<()>;
 }
 
 impl PermissionCheckable for User {
@@ -259,7 +259,7 @@ impl PermissionCheckable for User {
         }
     }
 
-    fn ensure_site_visible(&self, ctx: &AppData, site_id: i32) -> ServiceResult<()> {
+    fn ensure_site_visible(&self, ctx: &AppData, site_id: IdType) -> ServiceResult<()> {
         use crate::schema::user_access::dsl;
         if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
             return Ok(())
@@ -278,7 +278,7 @@ impl PermissionCheckable for User {
         }
     }
 
-    fn ensure_sensor_visible(&self, ctx: &AppData, sensor_id: i32) -> ServiceResult<()> {
+    fn ensure_sensor_visible(&self, ctx: &AppData, sensor_id: IdType) -> ServiceResult<()> {
         use crate::schema::user_access::dsl;
         use crate::schema::sensor::dsl as sensor_dsl;
         if PermissionType::from_char(self.permission.as_str()) .unwrap_or(PermissionType::User) == PermissionType::Admin {
@@ -303,7 +303,7 @@ impl PermissionCheckable for User {
         }
     }
 
-    fn ensure_channel_visible(&self, ctx: &AppData, channel_id: i32) -> ServiceResult<()> {
+    fn ensure_channel_visible(&self, ctx: &AppData, channel_id: IdType) -> ServiceResult<()> {
         use crate::schema::user_access::dsl;
         use crate::schema::sensor::dsl as sensor_dsl;
         use crate::schema::channel::dsl as channel_dsl;

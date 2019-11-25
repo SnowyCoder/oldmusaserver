@@ -7,6 +7,8 @@ use super::schema::*;
 // type alias to use in multiple places
 pub type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
+pub type IdType = i32;
+
 #[derive(Debug, Display, juniper::GraphQLEnum, PartialEq)]
 pub enum PermissionType {
     User,
@@ -33,7 +35,7 @@ impl PermissionType {
 #[derive(Debug, Queryable, Insertable)]
 #[table_name = "user_account"]
 pub struct User {
-    pub id: i32,
+    pub id: IdType,
     pub username: String,
     pub password_hash: String,
     pub last_password_change: chrono::NaiveDateTime,
@@ -42,7 +44,7 @@ pub struct User {
 
 #[derive(Debug, Queryable)]
 pub struct Site {
-    pub id: i32,
+    pub id: IdType,
     pub name: Option<String>,
     pub id_cnr: Option<String>,
     pub clock: chrono::NaiveDateTime,
@@ -52,15 +54,15 @@ pub struct Site {
 #[derive(Debug, Queryable, Insertable)]
 #[table_name="user_access"]
 pub struct UserAccess {
-    pub user_id: i32,
-    pub site_id: i32,
+    pub user_id: IdType,
+    pub site_id: IdType,
 }
 
 #[derive(Debug, Queryable, Insertable)]
 #[table_name="sensor"]
 pub struct Sensor {
-    pub id: i32,
-    pub site_id: i32,
+    pub id: IdType,
+    pub site_id: IdType,
     pub id_cnr: Option<String>,
 
     pub name: Option<String>,
@@ -74,8 +76,8 @@ pub struct Sensor {
 #[derive(Debug, Queryable, Insertable)]
 #[table_name="channel"]
 pub struct Channel {
-    pub id: i32,
-    pub sensor_id: i32,
+    pub id: IdType,
+    pub sensor_id: IdType,
     pub id_cnr: Option<String>,
 
     pub name: Option<String>,
@@ -92,7 +94,7 @@ pub struct Channel {
 #[table_name="fcm_user_contact"]
 pub struct FcmUserContact {
     pub registration_id: String,
-    pub user_id: i32,
+    pub user_id: IdType,
 }
 
 
