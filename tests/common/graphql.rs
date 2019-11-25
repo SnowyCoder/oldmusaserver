@@ -20,6 +20,7 @@ use std::sync::Mutex;
 use std::convert::AsRef;
 
 lazy_static! {
+    static ref MIGRATION_SETUP: Mutex<()> = Mutex::new(());
     static ref ROOT_PASSWORD: Mutex<RefCell<Option<CookieJar>>> = Mutex::new(RefCell::new(None));
 }
 
@@ -205,7 +206,10 @@ pub fn init_app() -> impl GraphQlTester {
     let sensor_database_url = std::env::var("SENSOR_DATABASE_URL").expect("SENSOR_DATABASE_URL must be set");
     let data = AppData::new("a".repeat(32), database_url, sensor_database_url);
 
-    data.setup_migrations().unwrap();
+    {
+        let _guard = MIGRATION_SETUP.lock().unwrap();
+        data.setup_migrations().unwrap();
+    }
 
     let service = test::init_service(
         App::new()
