@@ -6,7 +6,7 @@ use std::string::ToString;
 use std::sync::{Arc, Mutex};
 
 use bigdecimal::{BigDecimal, ToPrimitive};
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use derive_more::Display;
 use diesel::{
     pg::PgConnection,
@@ -14,6 +14,7 @@ use diesel::{
 };
 use diesel::r2d2::ConnectionManager;
 use juniper::RootNode;
+use mysql::params;
 use r2d2::PooledConnection;
 
 use crate::AppData;
@@ -22,6 +23,7 @@ use crate::schema::*;
 use crate::security::PermissionCheckable;
 
 use super::errors::{ServiceError, ServiceResult};
+use crate::web::errors::ServiceError::InternalServerError;
 
 pub struct Context {
     pub app: Arc<AppData>,
@@ -55,11 +57,22 @@ pub enum SensorStateType {
     Error,
 }
 
+#[derive(Debug, juniper::GraphQLObject, PartialEq)]
+pub struct ReadingData {
+    pub date: NaiveDateTime,
+    pub value_min: f64,
+    pub value_avg: Option<f64>,
+    pub value_max: Option<f64>,
+    pub deviation: Option<f64>,
+    pub error: Option<String>,
+}
+
 fn load_user_sites(ctx: &Context, user_id: IdType) -> ServiceResult<Vec<Site>> {
     use crate::schema::user_access::dsl as user_access;
     use crate::schema::site::dsl as site_dsl;
 
     let conn = ctx.get_connection()?;
+
 
     Ok(user_access::user_access.filter(user_access::user_id.eq(user_id))
         .inner_join(site_dsl::site)
@@ -210,6 +223,31 @@ impl Sensor {
     }
 }
 
+impl Channel {
+    fn query_cnr_ids(&self, ctx: &Context) -> ServiceResult<Option<(String, String, String)>> {
+        use crate::schema::{
+            channel::dsl as channel_dsl,
+            sensor::dsl as sensor_dsl,
+            site::dsl as site_dsl,
+        };
+
+        let conn = ctx.get_connection()?;
+
+        let site_sensor = channel_dsl::channel.find(self.id)
+            .inner_join(sensor_dsl::sensor.inner_join(site_dsl::site))
+            .select((site_dsl::id_cnr, sensor_dsl::id_cnr))
+            .get_result::<(Option<String>, Option<String>)>(&conn)?;
+
+        let channel = self.id_cnr.clone();
+
+        let res = if let ((Some(site_id), Some(sensor_id)), Some(channel_id)) = (site_sensor, channel) {
+            Some((site_id, sensor_id, channel_id))
+        } else { None };
+
+        return Ok(res)
+    }
+}
+
 #[juniper::object(
     description = "A sensor channel",
     Context = Context,
@@ -254,7 +292,45 @@ impl Channel {
         Ok(sensor.find(self.sensor_id).first::<Sensor>(&connection)?)
     }
 
-    // TODO: data
+    pub fn readings(&self, ctx: &Context, start: NaiveDateTime, end: NaiveDateTime) -> ServiceResult<Vec<ReadingData>> {
+        let ids = self.query_cnr_ids(ctx)?;
+
+        let ids = match ids {
+            Some(x) => x,
+            None => return Ok(Vec::new()),
+        };
+
+        println!("Start {} End {} ids: {:?}", start, end, ids);
+
+        let result = ctx.app.sensor_pool.prep_exec(
+            "SELECT data, valore_min, valore_med, valore_max, scarto, errore FROM t_rilevamento_dati \
+             WHERE data >= :start AND data <= :end AND idsito = :site_id AND idsensore = :sensor_id \
+             AND canale = :channel_id;",
+            params! {
+            "start" => start,
+            "end" => end,
+            "site_id" => ids.0,
+            "sensor_id" => ids.1,
+            "channel_id" => ids.2,
+        });
+
+        let data: Vec<ReadingData> = result.map(|qres| {
+            qres.map(|row| {
+                let (date, value_min, value_avg, value_max, deviation, error) =
+                    mysql::from_row::<(NaiveDateTime, f64, Option<f64>, Option<f64>, Option<f64>, Option<String>)>(row.unwrap());
+                ReadingData {
+                    date,
+                    value_min,
+                    value_avg,
+                    value_max,
+                    deviation,
+                    error: error.map(|x| x.to_string())
+                }
+            }).collect()
+        }).map_err(|x| InternalServerError(x.to_string()))?;
+
+        return Ok(data)
+    }
 }
 
 
