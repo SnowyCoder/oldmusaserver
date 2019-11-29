@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::sync::Mutex;
 
 use actix_identity::Identity;
-use actix_web::{Error, HttpResponse, web};
+use actix_web::{Error, HttpResponse, web, HttpRequest, http::Uri, http::PathAndQuery};
 use futures::future::Future;
 use juniper::http::{graphiql::graphiql_source, GraphQLRequest};
 
@@ -48,8 +48,11 @@ pub fn graphql(
         })
 }
 
-pub fn graphiql() -> HttpResponse {
-    let html = graphiql_source("http://localhost:8080/api/graphql");
+pub fn graphiql(request: HttpRequest) -> HttpResponse {
+    let mut orig = request.uri().clone().into_parts();
+    orig.path_and_query = Some(PathAndQuery::from_static("/api/graphql"));
+    let uri = Uri::from_parts(orig).expect("Cannot build URI");
+    let html = graphiql_source(&uri.to_string());
     HttpResponse::Ok()
         .content_type("text/html; charset=utf-8")
         .body(html)
