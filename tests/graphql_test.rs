@@ -71,14 +71,12 @@ fn test_permission_view() {
 
     let (user_id, user_name) = tester.create_random_user("123");
 
-    for &site_id in &site_ids[0..=1] {
-        tester.submit(query(r#"mutation giveAccess($userId: Int!, $siteId: Int!) {
-            giveUserAccess(userId: $userId, siteId: $siteId)
-        }"#).add_variable("userId", user_id).add_variable("siteId", site_id));
-    }
+    tester.submit(query(r#"mutation giveAccess($userId: Int!, $siteIds: [Int!]!) {
+        giveUserAccess(userId: $userId, siteIds: $siteIds)
+    }"#).add_variable("userId", user_id).add_variable("siteIds", &site_ids[0..=1]));
 
     paolo_tester.login(&user_name, "123");
-    let res = paolo_tester.submit(query(r#"query { sites { id} }"#));
+    let res = paolo_tester.submit(query(r#"query { sites { id } }"#));
     assert_eq!(res, json!([
         {"id": site_ids[0]},
         {"id": site_ids[1]}

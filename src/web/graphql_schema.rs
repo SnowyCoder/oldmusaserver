@@ -481,15 +481,19 @@ impl MutationRoot {
         Ok(true)
     }
 
-    fn give_user_access(ctx: &Context, user_id: IdType, site_id: IdType) -> ServiceResult<bool> {
+    fn give_user_access(ctx: &Context, user_id: IdType, site_ids: Vec<IdType>) -> ServiceResult<bool> {
         ctx.parse_user_required()?.ensure_admin()?;
-        ctx.app.auth_cache.give_access(&ctx.app, user_id, site_id)?;
+        for site_id in site_ids {
+            ctx.app.auth_cache.give_access(&ctx.app, user_id, site_id)?;
+        }
         Ok(true)
     }
 
-    fn revoke_user_access(ctx: &Context, user_id: IdType, site_id: IdType) -> ServiceResult<bool> {
+    fn revoke_user_access(ctx: &Context, user_id: IdType, site_ids: Vec<IdType>) -> ServiceResult<bool> {
         ctx.parse_user_required()?.ensure_admin()?;
-        ctx.app.auth_cache.revoke_access(&ctx.app, user_id, site_id)?;
+        for site_id in site_ids {
+            ctx.app.auth_cache.revoke_access(&ctx.app, user_id, site_id)?;
+        }
         Ok(true)
     }
 
