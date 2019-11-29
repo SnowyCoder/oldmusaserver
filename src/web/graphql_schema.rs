@@ -375,6 +375,21 @@ impl QueryRoot {
         Ok(sites)
     }
 
+    fn user(ctx: &Context, id: IdType) -> ServiceResult<User> {
+        let user = ctx.parse_user_required()?;
+
+        if id == user.id {
+            return Ok(user);
+        }
+
+        user.ensure_admin()?;// Only if the user didn't query himself
+
+        match ctx.app.auth_cache.find_user_by_id(&ctx.app, id)? {
+            Some(user) => Ok(user),
+            None => Err(ServiceError::NotFound("User".to_string()))
+        }
+    }
+
     fn site(ctx: &Context, id: IdType) -> ServiceResult<Site> {
         use crate::schema::site::dsl;
 

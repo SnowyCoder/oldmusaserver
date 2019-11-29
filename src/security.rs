@@ -86,7 +86,7 @@ impl AuthCache {// TODO, implement a cache
         Ok(dsl::user_account.filter(dsl::username.eq(username)).first::<User>(&conn).optional()?)
     }
 
-    fn find_user_by_id(&self, ctx: &AppData, id: IdType) -> ServiceResult<Option<User>> {
+    pub fn find_user_by_id(&self, ctx: &AppData, id: IdType) -> ServiceResult<Option<User>> {
         use crate::schema::user_account::dsl;
 
         let conn = ctx.pool.get()?;
