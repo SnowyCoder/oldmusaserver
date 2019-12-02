@@ -21,7 +21,7 @@ fn main() -> std::io::Result<()> {
     let root_password_override = std::env::var("ROOT_PASSWORD_OVERRIDE").map(|x| x.len() > 0).unwrap_or(false);
 
     // create db connection pool
-    let data = AppData::new(password_secret_key, database_url, sensor_database_url);
+    let data = AppData::new(password_secret_key, database_url, sensor_database_url, contact::Contacter::new_from_env());
     let domain: String = std::env::var("DOMAIN").unwrap_or_else(|_| "localhost".to_string());
 
     data.setup_migrations().unwrap();

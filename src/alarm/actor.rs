@@ -12,7 +12,7 @@ pub struct AlarmActor {
 }
 
 impl AlarmActor {
-    fn on_tick(&mut self, _ctx: &mut Context<Self>) {
+    fn on_tick(&mut self, ctx: &mut Context<Self>) {
         let start = Instant::now();
 
         let sensor_pool = &self.app_data.sensor_pool;
@@ -26,8 +26,10 @@ impl AlarmActor {
             },
         };
 
-        if let Err(description) = check_measures(&connection, sensor_pool) {
-            error!("Error during measurement check: {}", description);
+        let mes_result = check_measures(&self.app_data.contacter, &connection, sensor_pool);
+        match mes_result {
+            Ok(future) => {ctx.spawn(future.into_actor(self)); },
+            Err(description) => error!("Error during measurement check: {}", description),
         }
 
         info!("Measurement checked in {}ms", start.elapsed().as_millis());

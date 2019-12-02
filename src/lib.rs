@@ -20,6 +20,7 @@ use crate::web::errors::ServiceResult;
 use crate::web::graphql_schema::{create_schema, Schema};
 
 pub mod alarm;
+pub mod contact;
 pub mod web;
 pub mod schema;
 pub mod schema_sensor;
@@ -35,10 +36,11 @@ pub struct AppData {
     pub sensor_pool: mysql::Pool,
     pub graphql_schema: Arc<Schema>,
     pub auth_cache: security::AuthCache,
+    pub contacter: contact::Contacter,
 }
 
 impl AppData {
-    pub fn new(password_secret_key: String, database_url: String, sensor_database_url: String) -> Self {
+    pub fn new(password_secret_key: String, database_url: String, sensor_database_url: String, contacter: contact::Contacter) -> Self {
         let pool = {
             let manager = ConnectionManager::<PgConnection>::new(database_url);
             r2d2::Pool::builder()
@@ -48,7 +50,7 @@ impl AppData {
         let sensor_pool = mysql::Pool::new_manual(0, 10, sensor_database_url).unwrap();
 
         AppData {
-            pool, sensor_pool,
+            pool, sensor_pool, contacter,
             graphql_schema: Arc::new(create_schema()),
             auth_cache: security::AuthCache::new(password_secret_key)
         }
