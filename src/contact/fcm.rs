@@ -73,23 +73,22 @@ impl FcmContacter {
     }
 
     pub fn send_message<T: Serialize>(&self, message: &T, ids: Vec<String>) -> Box<dyn Future<Item = (), Error = ()>> {
-        // TODO: bulk send
-        let futures: Vec<_> = ids.iter().map(|id| {
-            let mut builder = MessageBuilder::new(&self.api_key, id);
+        let futures: Vec<_> = ids.chunks(FCM_MAX_RECIPIENTS as usize).map(|id_chunks| {
+            let mut builder = MessageBuilder::new_multi(&self.api_key, id_chunks);
             builder.data(message).unwrap();
+            let message = builder.finalize();
 
-            let mex = builder.finalize();
-            self.fcm_client.send(mex)
+            self.fcm_client.send(message)
                 .map(|_| { () })
                 .map_err(|err| {
                     info!("Error sending alarm: {:?}", err);
                 })
         }).collect();
-        Box::new(
-            join_all(futures)
-                .map(|_| {})
-                .map_err(|_| {})
-        )
+
+        let future = join_all(futures)
+            .map(|_| {})
+            .map_err(|_| {});
+        Box::new(future)
     }
 }
 

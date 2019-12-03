@@ -10,8 +10,6 @@ use crate::models::IdType;
 
 use super::fcm::FcmContacter;
 
-const FCM_MAX_RECIPIENTS: u32 = 1000;
-
 pub type DbConnection = PgConnection;
 
 #[derive(Debug)]
