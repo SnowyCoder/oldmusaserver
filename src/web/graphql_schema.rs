@@ -126,6 +126,27 @@ impl Site {
         Ok(sensor.filter(site_id.eq(self.id))
             .load::<Sensor>(&connection)?)
     }
+
+    /// Guesses the cnr sensor ids under this site based on recent readings,
+    /// Admin privileges are required for this operation as it puts some stress on the database
+    fn cnr_sensor_ids(&self, ctx: &Context) -> ServiceResult<Vec<String>> {
+        ctx.parse_user_required()?.ensure_admin()?;
+        let conn = &ctx.app.sensor_pool;
+
+        let id_cnr = match self.id_cnr.as_ref() {
+            None => return Ok(Vec::new()),
+            Some(x) => x,
+        };
+
+        let res = conn.prep_exec("SELECT DISTINCT idsensore FROM (SELECT * FROM t_rilevamento_dati WHERE idsito = :site_id ORDER BY data DESC LIMIT 1000) AS tmp;", params!{
+            "site_id" => id_cnr
+        })?;
+        let names: Vec<String> = res.map(|row| {
+            mysql::from_row::<String>(row.unwrap())
+        }).collect();
+
+        Ok(names)
+    }
 }
 
 #[juniper::object(
@@ -220,6 +241,40 @@ impl Sensor {
         // TODO: paging
         Ok(channel.filter(sensor_id.eq(self.id))
             .load::<Channel>(&connection)?)
+    }
+
+    /// Guesses the cnr channel ids under this sensor based on recent readings,
+    /// Admin privileges are required for this operation as it puts some stress on the database
+    fn cnr_channel_ids(&self, ctx: &Context) -> ServiceResult<Vec<String>> {
+        ctx.parse_user_required()?.ensure_admin()?;
+        use crate::schema::site::dsl as site_dsl;
+
+        let conn = &ctx.app.sensor_pool;
+
+        let sensor_cnr_id = match self.id_cnr.as_ref() {
+            None => return Ok(Vec::new()),
+            Some(x) => x,
+        };
+
+        let connection = ctx.get_connection()?;
+        let site_cnr_id = site_dsl::site.find(self.site_id)
+            .select(site_dsl::id_cnr)
+            .get_result::<Option<String>>(&connection)?;
+
+        let site_cnr_id = match site_cnr_id {
+            None => return Ok(Vec::new()),
+            Some(x) => x,
+        };
+
+        let res = conn.prep_exec("SELECT DISTINCT canale FROM (SELECT * FROM t_rilevamento_dati WHERE idsito = :site_id AND idsensore = :sensor_id ORDER BY data DESC LIMIT 100) AS tmp;", params!{
+            "site_id" => site_cnr_id,
+            "sensor_id" => sensor_cnr_id,
+        })?;
+        let names: Vec<String> = res.map(|row| {
+            mysql::from_row::<String>(row.unwrap())
+        }).collect();
+
+        Ok(names)
     }
 }
 
@@ -436,6 +491,20 @@ impl QueryRoot {
             .map_err(|x| ServiceError::from(x))?
             .ok_or(ServiceError::NotFound("Channel".to_string()))?;
         Ok(site)
+    }
+
+    /// Guesses the cnr site ids using the readings on the database,
+    /// Admin privileges are required for this operation as it puts some stress on the database
+    fn cnr_site_ids(ctx: &Context) -> ServiceResult<Vec<String>> {
+        ctx.parse_user_required()?.ensure_admin()?;
+        let conn = &ctx.app.sensor_pool;
+
+        let res = conn.prep_exec("SELECT DISTINCT idsito FROM t_rilevamento_dati;", ())?;
+        let names: Vec<String> = res.map(|row| {
+            mysql::from_row::<String>(row.unwrap())
+        }).collect();
+
+        Ok(names)
     }
 }
 

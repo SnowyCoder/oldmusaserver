@@ -1,8 +1,8 @@
+use actix_web::{http::StatusCode, ResponseError, web::HttpResponse};
 use derive_more::Display;
 use diesel::result::{DatabaseErrorKind, Error as DBError};
 use juniper::FieldError;
-use actix_web::{ResponseError, web::HttpResponse, http::StatusCode};
-use std::convert::Into;
+use mysql::Error as MySqlError;
 
 #[derive(Debug, Display)]
 pub enum ServiceError {
@@ -98,6 +98,12 @@ impl From<DBError> for ServiceError {
 impl From<r2d2::Error> for ServiceError {
     fn from(error: r2d2::Error) -> ServiceError {
         ServiceError::InternalServerError(format!("Pool error: {}", error))
+    }
+}
+
+impl From<MySqlError> for ServiceError {
+    fn from(error: MySqlError) -> ServiceError {
+        ServiceError::InternalServerError(format!("MySql Error: {}", error))
     }
 }
 
