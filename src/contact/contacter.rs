@@ -4,7 +4,7 @@ use diesel::PgConnection;
 use diesel::prelude::*;
 use futures::Future;
 use futures::future::join_all;
-use log::{debug, error, warn};
+use log::warn;
 
 use crate::models::IdType;
 

@@ -13,7 +13,7 @@ use diesel::{
 };
 use futures::future::join_all;
 use futures::prelude::*;
-use log::{debug, error, warn};
+use log::{debug, warn};
 use mysql::error::Error as MysqlError;
 use mysql::error::Result as MysqlResult;
 use mysql::params;

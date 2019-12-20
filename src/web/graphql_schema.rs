@@ -21,9 +21,11 @@ use crate::AppData;
 use crate::models::{Channel, FcmUserContact, IdType, PermissionType, Sensor, Site, User, UserAccess};
 use crate::schema::*;
 use crate::security::PermissionCheckable;
-
-use super::errors::{ServiceError, ServiceResult};
 use crate::web::errors::ServiceError::InternalServerError;
+
+use super::db_helper::{auto_create_site};
+use super::errors::{ServiceError, ServiceResult};
+use crate::web::db_helper::auto_create_sensor;
 
 pub struct Context {
     pub app: Arc<AppData>,
@@ -355,8 +357,6 @@ impl Channel {
             None => return Ok(Vec::new()),
         };
 
-        println!("Start {} End {} ids: {:?}", start, end, ids);
-
         let result = ctx.app.sensor_pool.prep_exec(
             "SELECT data, valore_min, valore_med, valore_max, scarto, errore FROM t_rilevamento_dati \
              WHERE data >= :start AND data <= :end AND idsito = :site_id AND idsensore = :sensor_id \
@@ -530,16 +530,23 @@ pub struct UserUpdateInput {
     permission: Option<PermissionType>,
 }
 
+#[derive(juniper::GraphQLInputObject)]
+pub struct SiteCreateInput {
+    name: Option<String>,
+    id_cnr: Option<String>,
+    auto_create: Option<bool>,
+}
+
 #[derive(juniper::GraphQLInputObject, Insertable, AsChangeset)]
 #[table_name="site"]
-pub struct SiteInput {
+pub struct SiteUpdateInput {
     name: Option<String>,
     id_cnr: Option<String>,
 }
 
 #[derive(juniper::GraphQLInputObject, Insertable, AsChangeset)]
 #[table_name="sensor"]
-pub struct SensorInput {
+pub struct SensorUpdateInput {
     pub id_cnr: Option<String>,
 
     pub name: Option<String>,
@@ -547,6 +554,19 @@ pub struct SensorInput {
 
     pub loc_x: Option<i32>,
     pub loc_y: Option<i32>,
+}
+
+#[derive(juniper::GraphQLInputObject)]
+pub struct SensorCreateInput {
+    pub id_cnr: Option<String>,
+
+    pub name: Option<String>,
+    pub enabled: Option<bool>,
+
+    pub loc_x: Option<i32>,
+    pub loc_y: Option<i32>,
+
+    pub auto_create: Option<bool>,
 }
 
 #[derive(juniper::GraphQLInputObject)]
@@ -697,20 +717,37 @@ impl MutationRoot {
     }
 
     #[graphql(arguments(data(description = "Initial site data")))]
-    fn add_site(ctx: &Context, data: SiteInput) -> ServiceResult<Site> {
-        use crate::schema::site::dsl::*;
+    fn add_site(ctx: &Context, data: SiteCreateInput) -> ServiceResult<Site> {
+        use crate::schema::site::dsl as site_dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
+
+        let auto_create = data.auto_create.unwrap_or(false);
+        if auto_create && data.id_cnr.is_none() {
+            return Err(ServiceError::BadRequest("Trying to auto-create site without an id_cnr".to_string()))
+        }
+
         let conn = ctx.get_connection()?;
 
         let now = Utc::now().naive_utc();
 
-        Ok(diesel::insert_into(site)
-            .values((data, clock.eq(now)))
-            .get_result::<Site>(&conn)?)
+        let db_data = SiteUpdateInput {
+            name: data.name,
+            id_cnr: data.id_cnr.clone(),
+        };
+
+        let site = diesel::insert_into(site_dsl::site)
+            .values((db_data, site_dsl::clock.eq(now)))
+            .get_result::<Site>(&conn)?;
+
+        if auto_create {
+            auto_create_site(site.id, data.id_cnr.as_deref().unwrap_or(""), &conn, &ctx.app.sensor_pool)?;
+        }
+
+        Ok(site)
     }
 
-    fn update_site(ctx: &Context, id: IdType, data: SiteInput) -> ServiceResult<Site> {
+    fn update_site(ctx: &Context, id: IdType, data: SiteUpdateInput) -> ServiceResult<Site> {
         use crate::schema::site::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
@@ -738,18 +775,44 @@ impl MutationRoot {
         }
     }
 
-    fn add_sensor(ctx: &Context, site_id: IdType, data: SensorInput) -> ServiceResult<Sensor> {
+    fn add_sensor(ctx: &Context, site_id: IdType, data: SensorCreateInput) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;
+
+        let auto_create = data.auto_create.unwrap_or(false);
+        if auto_create && data.id_cnr.is_none() {
+            return Err(ServiceError::BadRequest("Trying to auto-create sensor without an id_cnr".to_string()))
+        }
+
         let conn = ctx.get_connection()?;
 
-        Ok(diesel::insert_into(dsl::sensor)
-            .values((data, dsl::site_id.eq(site_id)))
-            .get_result::<Sensor>(&conn)?)
+        let db_data = SensorUpdateInput {
+            id_cnr: data.id_cnr,
+            name: data.name,
+            enabled: data.enabled,
+            loc_x: data.loc_x,
+            loc_y: data.loc_y,
+        };
+
+        let res = diesel::insert_into(dsl::sensor)
+            .values((db_data, dsl::site_id.eq(site_id)))
+            .get_result::<Sensor>(&conn)?;
+
+        if auto_create {
+            use crate::schema::site::dsl as site_dsl;
+
+            let site_cnr_id: Option<String> = site_dsl::site.find(site_id)
+                .select(site_dsl::id_cnr)
+                .get_result(&conn)?;
+
+            auto_create_sensor(site_cnr_id.as_deref().unwrap_or(""), res.id, res.id_cnr.as_deref().unwrap_or(""), &conn, &ctx.app.sensor_pool)?;
+        }
+
+        Ok(res)
     }
 
-    fn update_sensor(ctx: &Context, id: IdType, data: SensorInput) -> ServiceResult<Sensor> {
+    fn update_sensor(ctx: &Context, id: IdType, data: SensorUpdateInput) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
         ctx.parse_user_required()?.ensure_admin()?;

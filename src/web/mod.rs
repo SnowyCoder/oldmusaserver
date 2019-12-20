@@ -1,4 +1,5 @@
 pub mod api_service;
+pub mod db_helper;
 pub mod errors;
 pub mod graphql_schema;
 pub mod graphql_service;

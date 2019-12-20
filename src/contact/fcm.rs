@@ -6,7 +6,7 @@ use futures::{
     Future,
     future::join_all,
 };
-use log::{info, warn};
+use log::info;
 use serde::Serialize;
 
 use crate::models::{IdType, PermissionType};
