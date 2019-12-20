@@ -199,11 +199,7 @@ impl AuthCache {// TODO, implement a cache
             .filter(dsl::site_id.eq(site_id))
             .get_result(&conn)?;
 
-        return Ok(if count == 0 {
-            false
-        } else {
-            true
-        })
+        Ok(count != 0)
     }
 
     pub fn ensure_access(&self, ctx: &AppData, user_id: IdType, site_id: IdType) -> ServiceResult<()> {

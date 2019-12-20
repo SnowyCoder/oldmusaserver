@@ -79,7 +79,7 @@ impl FcmContacter {
             let message = builder.finalize();
 
             self.fcm_client.send(message)
-                .map(|_| { () })
+                .map(|_| { })
                 .map_err(|err| {
                     info!("Error sending alarm: {:?}", err);
                 })

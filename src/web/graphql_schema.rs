@@ -301,7 +301,7 @@ impl Channel {
             Some((site_id, sensor_id, channel_id))
         } else { None };
 
-        return Ok(res)
+        Ok(res)
     }
 }
 
@@ -379,12 +379,12 @@ impl Channel {
                     value_avg,
                     value_max,
                     deviation,
-                    error: error.map(|x| x.to_string())
+                    error,
                 }
             }).collect()
         }).map_err(|x| InternalServerError(x.to_string()))?;
 
-        return Ok(data)
+        Ok(data)
     }
 }
 
@@ -456,8 +456,8 @@ impl QueryRoot {
         let site: Site = dsl::site.find(id)
             .first::<Site>(&conn)
             .optional()
-            .map_err(|x| ServiceError::from(x))?
-            .ok_or(ServiceError::NotFound("Site".to_string()))?;
+            .map_err(ServiceError::from)?
+            .ok_or_else(|| ServiceError::NotFound("Site".to_string()))?;
         Ok(site)
     }
 
@@ -472,8 +472,8 @@ impl QueryRoot {
         let site: Sensor = dsl::sensor.find(id)
             .first::<Sensor>(&conn)
             .optional()
-            .map_err(|x| ServiceError::from(x))?
-            .ok_or(ServiceError::NotFound("Sensor".to_string()))?;
+            .map_err(ServiceError::from)?
+            .ok_or_else(|| ServiceError::NotFound("Sensor".to_string()))?;
         Ok(site)
     }
 
@@ -488,8 +488,8 @@ impl QueryRoot {
         let site: Channel = dsl::channel.find(id)
             .first::<Channel>(&conn)
             .optional()
-            .map_err(|x| ServiceError::from(x))?
-            .ok_or(ServiceError::NotFound("Channel".to_string()))?;
+            .map_err(ServiceError::from)?
+            .ok_or_else(|| ServiceError::NotFound("Channel".to_string()))?;
         Ok(site)
     }
 

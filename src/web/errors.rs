@@ -40,7 +40,7 @@ impl juniper::IntoFieldError for ServiceError {
                 })
             ),
             ServiceError::BadRequest(message) => FieldError::new(
-                format!("{}", message),
+                message,
                 graphql_value!({
                     "type": "BAD_REQUEST"
                 })

@@ -5,7 +5,7 @@ use actix_web::{App, HttpServer, middleware, web};
 use oldmusa_server::*;
 
 fn expect_env_var(name: &str) -> String {
-    std::env::var(name).expect(format!("{} must be set", name).as_str())
+    std::env::var(name).unwrap_or_else(|_| panic!("{} must be set", name))
 }
 
 fn main() -> std::io::Result<()> {
@@ -18,7 +18,7 @@ fn main() -> std::io::Result<()> {
     let password_secret_key = expect_env_var("PASSWORD_SECRET_KEY");
 
     let root_default_password = expect_env_var("ROOT_DEFAULT_PASSWORD");
-    let root_password_override = std::env::var("ROOT_PASSWORD_OVERRIDE").map(|x| x.len() > 0).unwrap_or(false);
+    let root_password_override = std::env::var("ROOT_PASSWORD_OVERRIDE").map(|x| !x.is_empty()).unwrap_or(false);
 
     // create db connection pool
     let data = AppData::new(password_secret_key, database_url, sensor_database_url, contact::Contacter::new_from_env());

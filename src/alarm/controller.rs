@@ -100,7 +100,7 @@ pub fn load_site_clocks(conn: &Connection) -> QueryResult<Vec<SiteClockData>> {
 }
 
 /// Saves the sites clock data to the database (overriding the previous ones).
-pub fn save_site_clocks(conn: &Connection, clocks: &Vec<SiteClockUpdateData>) -> QueryResult<()>{
+pub fn save_site_clocks(conn: &Connection, clocks: &[SiteClockUpdateData]) -> QueryResult<()>{
     use crate::schema::site::dsl::*;
     // Postgresql:
     // INSERT INTO tabelname(id, col2, col3, col4)
@@ -181,9 +181,9 @@ fn load_channels_alarm_data(conn: &Connection) -> QueryResult<Vec<ChannelAlarmDa
         .map(|x| ChannelAlarmData {
             site_id: x.site_id,
             sensor_id: x.sensor_id,
-            sensor_cnr_id: x.sensor_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or("".to_string()),
+            sensor_cnr_id: x.sensor_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or_else(|| "".to_string()),
             channel_id: x.channel_id,
-            channel_cnr_id: x.channel_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or("".to_string()),
+            channel_cnr_id: x.channel_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or_else(||  "".to_string()),
             range_min: x.range_min.as_ref().and_then(|x| x.to_f64()).unwrap_or(std::f64::NEG_INFINITY),
             range_max: x.range_max.as_ref().and_then(|x| x.to_f64()).unwrap_or(std::f64::INFINITY),
         }).collect();
@@ -224,9 +224,9 @@ fn load_alarmed_data(conn: &Connection) -> QueryResult<Vec<AlarmedChannelData>> 
         .iter()
         .map(|x| AlarmedChannelData {
             channel_id: x.channel_id,
-            site_cnr_id: x.site_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or("".to_string()),
-            sensor_cnr_id: x.sensor_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or("".to_string()),
-            channel_cnr_id: x.channel_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or("".to_string()),
+            site_cnr_id: x.site_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or_else(|| "".to_string()),
+            sensor_cnr_id: x.sensor_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or_else(||  "".to_string()),
+            channel_cnr_id: x.channel_cnr_id.as_ref().map(|x| x.to_string()).unwrap_or_else(|| "".to_string()),
             range_min: x.range_min.as_ref().and_then(|x| x.to_f64()).unwrap_or(std::f64::NEG_INFINITY),
             range_max: x.range_max.as_ref().and_then(|x| x.to_f64()).unwrap_or(std::f64::INFINITY),
         }).collect())

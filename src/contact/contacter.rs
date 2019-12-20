@@ -63,10 +63,10 @@ impl Contacter {
 
         let payload = SensorRangeAlarmData {
             site_id: data.0,
-            site_name: data.1.unwrap_or("?".to_string()),
-            sensor_name: data.2.unwrap_or("?".to_string()),
-            channel_name: data.3.unwrap_or("?".to_string()),
-            value: format!("{} {}", measure, data.4.unwrap_or("".to_string()))
+            site_name: data.1.unwrap_or_else(|| "?".to_string()),
+            sensor_name: data.2.unwrap_or_else(||  "?".to_string()),
+            channel_name: data.3.unwrap_or_else(|| "?".to_string()),
+            value: format!("{} {}", measure, data.4.unwrap_or_else(|| "".to_string()))
         };
 
         let mut futures = Vec::new();

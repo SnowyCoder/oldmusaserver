@@ -58,7 +58,7 @@ pub fn image_upload(ctx: web::Data<AppData>, identity: Identity, site_id: web::P
         return Either::A(err(x.into()));
     };
 
-    let file = match get_file_from_site(*site_id).and_then(|path: PathBuf| fs::File::create(path)) {
+    let file = match get_file_from_site(*site_id).and_then(fs::File::create) {
         Ok(file) => file,
         Err(e) => return Either::A(err(error::ErrorInternalServerError(e))),
     };
