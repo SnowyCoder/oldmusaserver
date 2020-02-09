@@ -1,3 +1,11 @@
+use std::borrow::BorrowMut;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::convert::AsRef;
+use std::ops::DerefMut;
+use std::rc::Rc;
+use std::sync::Mutex;
+
 use actix_http::cookie::CookieJar;
 use actix_http::Request;
 use actix_identity::{CookieIdentityPolicy, IdentityService};
@@ -6,18 +14,12 @@ use actix_web::dev::{PayloadStream, Service, ServiceResponse};
 use actix_web::http::header;
 use juniper::DefaultScalarValue;
 use juniper::http::GraphQLRequest;
-use oldmusa_server::*;
 use rand::Rng;
 use serde::Deserialize;
 use serde_json::json;
 use serde_json::Value;
-use std::borrow::BorrowMut;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::ops::DerefMut;
-use std::rc::Rc;
-use std::sync::Mutex;
-use std::convert::AsRef;
+
+use oldmusa_server::*;
 
 lazy_static! {
     static ref MIGRATION_SETUP: Mutex<()> = Mutex::new(());
@@ -107,15 +109,26 @@ pub trait GraphQlTester : Clone {
 
     fn submit<R: Into<GraphQLRequest>>(&mut self, query: R) -> Value {
         let x = self.submit_raw(query);
-        let errors = match x {
+        match x {
             Ok(val) => return json_object_extract_first(&val).expect("Cannot parse value"),
-            Err(errors) => errors,
+            Err(errors) => Self::manage_errors(errors),
         };
+    }
+
+    fn submit_all<R: Into<GraphQLRequest>>(&mut self, query: R) -> Value {
+        let x = self.submit_raw(query);
+        match x {
+            Ok(val) => return val,
+            Err(errors) => Self::manage_errors(errors),
+        };
+    }
+
+    fn manage_errors(errors: Vec<ExecutionError>) -> ! {
         let errors = errors.iter()
             .map(|x| x.message.clone())
             .collect::<Vec<String>>()
             .join("\n");
-        panic!(errors);
+        panic!(errors)
     }
 
     fn login(&mut self, username: &str, password: &str) {
@@ -204,7 +217,7 @@ pub fn init_app() -> impl GraphQlTester {
     dotenv::dotenv().ok();
     let database_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set");
     let sensor_database_url = std::env::var("SENSOR_DATABASE_URL").expect("SENSOR_DATABASE_URL must be set");
-    let data = AppData::new("a".repeat(32), database_url, sensor_database_url);
+    let data = AppData::new("a".repeat(32), database_url, sensor_database_url, contact::Contacter::new(None));
 
     {
         let _guard = MIGRATION_SETUP.lock().unwrap();
@@ -290,4 +303,14 @@ impl IntoPrimitive for Value {
     fn to_str(&self) -> &str {
         self.as_str().expect("Value is not string")
     }
+}
+
+pub fn assert_eq_set(mut left: Value, mut right: Value) {
+    let left = left.as_array_mut().expect("Left is not array");
+    let right = right.as_array_mut().expect("Right is not array");
+
+    assert_eq!(left.len(), right.len());
+    left.sort_by_cached_key(|x| format!("{}", x));
+    right.sort_by_cached_key(|x| format!("{}", x));
+    assert_eq!(left, right)
 }

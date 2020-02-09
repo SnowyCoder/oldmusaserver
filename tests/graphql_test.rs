@@ -1,13 +1,14 @@
+#[macro_use]
+extern crate lazy_static;
+
 use std::panic;
 
 use serde_json::json;
 
-#[macro_use]
-extern crate lazy_static;
+use common::graphql::*;
+
 
 mod common;
-
-use common::graphql::*;
 
 #[test]
 fn test_generic() {
@@ -87,6 +88,138 @@ fn test_permission_view() {
     }"#).add_variable("id", site_ids[2]));
 
     res.expect_service_error("NOT_FOUND");
+
+    // Test bulk
+    let res = paolo_tester.submit(query(r#"query getBulkSites($siteIds: [Int!]!) {
+        sites(ids: $siteIds) { id }
+    }"#).add_variable("siteIds", &site_ids[0..=1]));
+
+    assert_eq_set(res, json!([
+        {"id": site_ids[0]},
+        {"id": site_ids[1]}
+    ]));
+
+    let res = paolo_tester.submit_raw(query(r#"query getBulkSites($siteIds: [Int!]!) {
+        sites(ids: $siteIds) { id }
+    }"#).add_variable("siteIds", &site_ids[0..=2]));
+    res.expect_service_error("NOT_FOUND");
+
+    // Also test for sensors-channels
+    // Built tree:
+    // 0 (visible)
+    // |- 00
+    // ||- 000
+    // 1 (visible)
+    // |- 10
+    // ||- 100
+    // ||- 101
+    // |- 11
+    // ||- 110
+    // 2 (not visible)
+    // |- 20
+    // ||- 200
+    // ||- 201
+
+    let res = tester.submit_all(
+        query(r#"mutation createSensorsTPW($siteA: Int!, $siteB: Int!, $siteC: Int!) {
+            s00: addSensor(siteId: $siteA, data: {}) { id }
+            s10: addSensor(siteId: $siteB, data: {}) { id }
+            s11: addSensor(siteId: $siteB, data: {}) { id }
+            s20: addSensor(siteId: $siteC, data: {}) { id }
+        }"#)
+            .add_variable("siteA", site_ids[0])
+            .add_variable("siteB", site_ids[1])
+            .add_variable("siteC", site_ids[2])
+    );
+    let s00 = res["s00"]["id"].to_i64();
+    let s10 = res["s10"]["id"].to_i64();
+    let s11 = res["s11"]["id"].to_i64();
+    let s20 = res["s20"]["id"].to_i64();
+
+    let res = tester.submit_all(
+        query(r#"mutation createChannelsTPW($s00: Int!, $s10: Int!, $s11: Int!, $s20: Int!) {
+            c000: addChannel(sensorId: $s00, data: {}) { id }
+            c100: addChannel(sensorId: $s10, data: {}) { id }
+            c101: addChannel(sensorId: $s10, data: {}) { id }
+            c110: addChannel(sensorId: $s11, data: {}) { id }
+            c200: addChannel(sensorId: $s20, data: {}) { id }
+            c201: addChannel(sensorId: $s20, data: {}) { id }
+        }"#)
+            .add_variable("s00", s00)
+            .add_variable("s10", s10)
+            .add_variable("s11", s11)
+            .add_variable("s20", s20)
+    );
+    let c000 = res["c000"]["id"].to_i64();
+    let c100 = res["c100"]["id"].to_i64();
+    let c101 = res["c101"]["id"].to_i64();
+    let c110 = res["c110"]["id"].to_i64();
+    let c200 = res["c200"]["id"].to_i64();
+    let c201 = res["c201"]["id"].to_i64();
+
+    // Ok, setup done. now to the fun part:
+    // Test bulk channels from admin (everything visible)
+    let res = tester.submit(query(r#"query getBulkSensors($sensorIds: [Int!]!) {
+        sensors(ids: $sensorIds) { id }
+    }"#).add_variable("sensorIds", vec![s00, s10, s11, s20]));
+    assert_eq_set(res, json!([
+        {"id": s00},
+        {"id": s10},
+        {"id": s11},
+        {"id": s20},
+    ]));
+
+    // Test bulk from admin with non-existant sensor
+    let res = tester.submit_raw(query(r#"query getBulkSensors($sensorIds: [Int!]!) {
+        sensors(ids: $sensorIds) { id }
+    }"#).add_variable("sensorIds", vec![s00, s20, s20 * 100 + 1]));
+    res.expect_service_error("NOT_FOUND");
+
+    // Test bulk from non-admin
+    let res = paolo_tester.submit(query(r#"query getBulkSensors($sensorIds: [Int!]!) {
+        sensors(ids: $sensorIds) { id }
+    }"#).add_variable("sensorIds", vec![s00, s10, s11]));
+    assert_eq_set(res, json!([
+        {"id": s00},
+        {"id": s10},
+        {"id": s11},
+    ]));
+
+    // Test bulk from non-admin with invisible sensor (s20)
+    let res = paolo_tester.submit_raw(query(r#"query getBulkSensors($sensorIds: [Int!]!) {
+        sensors(ids: $sensorIds) { id }
+    }"#).add_variable("sensorIds", vec![s00, s10, s20]));
+    res.expect_service_error("NOT_FOUND");
+
+
+    // Channels test bulk from non-admins
+    let res = paolo_tester.submit(query(r#"query getBulkChannels($channelIds: [Int!]!) {
+        channels(ids: $channelIds) { id }
+    }"#).add_variable("channelIds", vec![c000, c100, c110]));
+    assert_eq_set(res, json!([
+        {"id": c000},
+        {"id": c100},
+        {"id": c110},
+    ]));
+
+    // Channels test bulk from non-admins with invisible channel
+    let res = paolo_tester.submit_raw(query(r#"query getBulkChannels($channelIds: [Int!]!) {
+        channels(ids: $channelIds) { id }
+    }"#).add_variable("channelIds", vec![c000, c101, c110, c201]));
+    res.expect_service_error("NOT_FOUND");
+
+    // Same as last but from admin
+    // Channels test bulk from non-admins
+    let res = tester.submit(query(r#"query getBulkChannels($channelIds: [Int!]!) {
+        channels(ids: $channelIds) { id }
+    }"#).add_variable("channelIds", vec![c000, c101, c110, c200, c201]));
+    assert_eq_set(res, json!([
+        {"id": c000},
+        {"id": c101},
+        {"id": c110},
+        {"id": c200},
+        {"id": c201},
+    ]));
 
     // Cleanup
     for id in site_ids {

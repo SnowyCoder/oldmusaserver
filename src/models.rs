@@ -49,6 +49,10 @@ pub struct Site {
     pub id_cnr: Option<String>,
     pub clock: chrono::NaiveDateTime,
 }
+pub type SiteAllColumns = (site::dsl::id, site::dsl::name, site::dsl::id_cnr, site::dsl::clock);
+pub const SITE_ALL_COLUMNS: SiteAllColumns = (
+    site::dsl::id, site::dsl::name, site::dsl::id_cnr, site::dsl::clock
+);
 
 
 #[derive(Debug, Queryable, Insertable)]
@@ -72,6 +76,14 @@ pub struct Sensor {
 
     pub enabled: bool,
 }
+pub type SensorAllColumns = (
+    sensor::dsl::id, sensor::dsl::site_id, sensor::dsl::id_cnr, sensor::dsl::name,
+    sensor::dsl::loc_x, sensor::dsl::loc_y, sensor::dsl::enabled
+);
+pub const SENSOR_ALL_COLUMNS: SensorAllColumns = (
+    sensor::dsl::id, sensor::dsl::site_id, sensor::dsl::id_cnr, sensor::dsl::name,
+    sensor::dsl::loc_x, sensor::dsl::loc_y, sensor::dsl::enabled
+);
 
 #[derive(Debug, Queryable, Insertable)]
 #[table_name="channel"]
@@ -89,6 +101,16 @@ pub struct Channel {
 
     pub alarmed: bool,
 }
+pub type ChannelAllColumns = (
+    channel::dsl::id, channel::dsl::sensor_id, channel::dsl::id_cnr, channel::dsl::name,
+    channel::dsl::measure_unit, channel::dsl::range_min, channel::dsl::range_max,
+    channel::dsl::alarmed
+);
+pub const CHANNEL_ALL_COLUMNS: ChannelAllColumns = (
+    channel::dsl::id, channel::dsl::sensor_id, channel::dsl::id_cnr, channel::dsl::name,
+    channel::dsl::measure_unit, channel::dsl::range_min, channel::dsl::range_max,
+    channel::dsl::alarmed
+);
 
 #[derive(Debug, Queryable, Insertable)]
 #[table_name="fcm_user_contact"]

@@ -18,14 +18,15 @@ use mysql::params;
 use r2d2::PooledConnection;
 
 use crate::AppData;
-use crate::models::{Channel, FcmUserContact, IdType, PermissionType, Sensor, Site, User, UserAccess};
+use crate::models::{Channel, CHANNEL_ALL_COLUMNS, FcmUserContact, IdType, PermissionType, Sensor,
+                    SENSOR_ALL_COLUMNS, Site, SITE_ALL_COLUMNS, User, UserAccess};
 use crate::schema::*;
 use crate::security::PermissionCheckable;
+use crate::web::db_helper::auto_create_sensor;
 use crate::web::errors::ServiceError::InternalServerError;
 
-use super::db_helper::{auto_create_site};
+use super::db_helper::auto_create_site;
 use super::errors::{ServiceError, ServiceResult};
-use crate::web::db_helper::auto_create_sensor;
 
 pub struct Context {
     pub app: Arc<AppData>,
@@ -75,10 +76,22 @@ fn load_user_sites(ctx: &Context, user_id: IdType) -> ServiceResult<Vec<Site>> {
 
     let conn = ctx.get_connection()?;
 
+    Ok(user_access::user_access.filter(user_access::user_id.eq(user_id))
+        .inner_join(site_dsl::site)
+        .select(SITE_ALL_COLUMNS)
+        .load::<Site>(&conn)?)
+}
+
+fn load_user_sites_filtered(ctx: &Context, user_id: IdType, ids: Vec<IdType>) -> ServiceResult<Vec<Site>> {
+    use crate::schema::user_access::dsl as user_access;
+    use crate::schema::site::dsl as site_dsl;
+
+    let conn = ctx.get_connection()?;
 
     Ok(user_access::user_access.filter(user_access::user_id.eq(user_id))
         .inner_join(site_dsl::site)
-        .select((site_dsl::id, site_dsl::name, site_dsl::id_cnr, site_dsl::clock))
+        .filter(site_dsl::id.eq_any(ids))
+        .select(SITE_ALL_COLUMNS)
         .load::<Site>(&conn)?)
 }
 
@@ -411,23 +424,100 @@ impl QueryRoot {
         Ok(user_account.load::<User>(&connection)?)
     }
 
-    fn sites(ctx: &Context) -> ServiceResult<Vec<Site>> {
+    fn sites(ctx: &Context, ids: Option<Vec<IdType>>) -> ServiceResult<Vec<Site>> {
         let user = ctx.parse_user_required()?;
+
+        let len = ids.as_ref().map(|x| x.len());
 
         // TODO: LIMIT
         let sites: Vec<Site> = match PermissionType::from_char(user.permission.as_str()).unwrap() {
             PermissionType::Admin => {
-                use crate::schema::site::dsl::*;
+                use crate::schema::site::dsl as site_dsl;
 
                 let conn = ctx.get_connection()?;
-                site.load::<Site>(&conn)?
+                if let Some(filter_ids) = ids {
+                    site_dsl::site.filter(site_dsl::id.eq_any(filter_ids)).load::<Site>(&conn)?
+                } else {
+                    site_dsl::site.load::<Site>(&conn)?
+                }
             },
             PermissionType::User => {
-                load_user_sites(ctx, user.id)?
+                if let Some(filter_ids) = ids {
+                    load_user_sites_filtered(ctx, user.id, filter_ids)?
+                } else {
+                    load_user_sites(ctx, user.id)?
+                }
             }
         };
 
+        if let Some(l) = len {
+            if l != sites.len() {
+                return Err(ServiceError::NotFound("Site".to_string()))
+            }
+        }
+
         Ok(sites)
+    }
+
+    fn sensors(ctx: &Context, ids: Vec<IdType>) -> ServiceResult<Vec<Sensor>> {
+        use crate::schema::user_access::dsl as user_access;
+        use crate::schema::site::dsl as site_dsl;
+        use crate::schema::sensor::dsl as sensor_dsl;
+
+        let user = ctx.parse_user_required()?;
+        let conn = ctx.get_connection()?;
+
+        let is_admin =  PermissionType::from_char(user.permission.as_str()).unwrap_or(PermissionType::User) == PermissionType::Admin;
+        let ids_len = ids.len();
+
+        let sensors = if is_admin {
+            sensor_dsl::sensor
+                .filter(sensor_dsl::id.eq_any(ids))
+                .load::<Sensor>(&conn)?
+        } else {
+            user_access::user_access
+                .filter(user_access::user_id.eq(user.id))
+                .inner_join(site_dsl::site.inner_join(sensor_dsl::sensor))
+                .filter(sensor_dsl::id.eq_any(ids))
+                .select(SENSOR_ALL_COLUMNS)
+                .load::<Sensor>(&conn)?
+        };
+
+        if sensors.len() != ids_len {
+            return Err(ServiceError::NotFound("Sensor".to_string()))
+        }
+        Ok(sensors)
+    }
+
+    fn channels(ctx: &Context, ids: Vec<IdType>) -> ServiceResult<Vec<Channel>> {
+        use crate::schema::user_access::dsl as user_access;
+        use crate::schema::site::dsl as site_dsl;
+        use crate::schema::sensor::dsl as sensor_dsl;
+        use crate::schema::channel::dsl as channel_dsl;
+
+        let user = ctx.parse_user_required()?;
+        let conn = ctx.get_connection()?;
+
+        let is_admin =  PermissionType::from_char(user.permission.as_str()).unwrap_or(PermissionType::User) == PermissionType::Admin;
+        let ids_len = ids.len();
+
+        let channels = if is_admin {
+            channel_dsl::channel
+                .filter(channel_dsl::id.eq_any(ids))
+                .load::<Channel>(&conn)?
+        } else {
+            user_access::user_access
+                .filter(user_access::user_id.eq(user.id))
+                .inner_join(site_dsl::site.inner_join(sensor_dsl::sensor.inner_join(channel_dsl::channel)))
+                .filter(channel_dsl::id.eq_any(ids))
+                .select(CHANNEL_ALL_COLUMNS)
+                .load::<Channel>(&conn)?
+        };
+
+        if channels.len() != ids_len {
+            return Err(ServiceError::NotFound("Channel".to_string()))
+        }
+        Ok(channels)
     }
 
     fn user(ctx: &Context, id: IdType) -> ServiceResult<User> {
