@@ -28,7 +28,7 @@ type Connection = PgConnection;
 
 /// Loads the last measure in a channel using the chronological order, returning min_measure, max_measure, timestamp
 /// The channel must be specified fully by the site, the sensor and the channel ids.
-pub fn load_last_channel_measure(site_id: &str, sensor_id: &str, channel_id: &str, conn: &mysql::Pool) -> MysqlResult<(f64, f64, NaiveDateTime)> {
+pub fn load_last_channel_measure(site_id: &str, sensor_id: &str, channel_id: &str, conn: &mysql::Pool) -> MysqlResult<Option<(f64, f64, NaiveDateTime)>> {
     let mut result = conn.prep_exec(
         "SELECT valore_min, valore_max, data FROM t_rilevamento_dati WHERE idsito = :site_id AND idsensore = :sensor_id AND canale = :channel_id ORDER BY data DESC LIMIT 1;",
         params!{
@@ -37,20 +37,24 @@ pub fn load_last_channel_measure(site_id: &str, sensor_id: &str, channel_id: &st
             "channel_id" => channel_id
         }
     )?;
-    let data = mysql::from_row::<(f64, f64, NaiveDateTime)>(result.next().expect("Row expected, empty table found")?);
-    Ok(data)
+    match result.next() {
+        Some(row) => Ok(Some(mysql::from_row::<(f64, f64, NaiveDateTime)>(row?))),
+        None => Ok(None),
+    }
 }
 
 /// Loads the last measure of the site (among every channel)
 /// # Panics
 /// If the site has no measures (this should be revisited but it should never happen).
-pub fn load_last_site_measure(site_id: &str, conn: &mysql::Pool) -> MysqlResult<(f64, f64, NaiveDateTime)> {
+pub fn load_last_site_measure(site_id: &str, conn: &mysql::Pool) -> MysqlResult<Option<(f64, f64, NaiveDateTime)>> {
     let mut result = conn.prep_exec(
         "SELECT valore_min, valore_max, data FROM t_rilevamento_dati WHERE idsito = :site_id ORDER BY data DESC LIMIT 1;",
         params!{"site_id" => site_id}
     )?;
-    let data = mysql::from_row::<(f64, f64, NaiveDateTime)>(result.next().expect("Row expected, empty table found")?);
-    Ok(data)
+    match result.next() {
+        Some(row) => Ok(Some(mysql::from_row::<(f64, f64, NaiveDateTime)>(row?))),
+        None => Ok(None)
+    }
 }
 
 #[derive(Debug)]
@@ -257,7 +261,10 @@ pub fn check_measures(contacter: &Contacter, conn: &Connection, pool: &mysql::Po
 
         let data = load_channel_data(cnr_id, *clock, pool)?;
 
-        let last_measure = load_last_site_measure(cnr_id, pool)?;
+        let last_measure = match load_last_site_measure(cnr_id, pool)? {
+            Some(x) => x,
+            None => continue,
+        };
 
         debug!(" checking: {} = {} ({:?})", site_id, cnr_id, data);
 
@@ -314,10 +321,10 @@ pub fn check_measures(contacter: &Contacter, conn: &Connection, pool: &mysql::Po
 
     for alarm in alarmed_data {
         // Alarm checks
-        let (measure_min, measure_max,  _measure_time) = load_last_channel_measure(&alarm.site_cnr_id, &alarm.sensor_cnr_id, &alarm.channel_cnr_id, pool)?;
-
-        if measure_min > alarm.range_min && measure_max < alarm.range_max {
-            alarm_end(conn, alarm.channel_id)?;
+        if let Some((measure_min, measure_max,  _measure_time)) = load_last_channel_measure(&alarm.site_cnr_id, &alarm.sensor_cnr_id, &alarm.channel_cnr_id, pool)? {
+            if measure_min > alarm.range_min && measure_max < alarm.range_max {
+                alarm_end(conn, alarm.channel_id)?;
+            }
         }
     }
 
