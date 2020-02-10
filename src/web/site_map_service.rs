@@ -14,7 +14,7 @@ use crate::security::PermissionCheckable;
 
 use super::errors::{ServiceError, ServiceResult};
 
-fn get_file_from_site(site_id: IdType) -> std::io::Result<PathBuf> {
+pub fn get_file_from_site(site_id: IdType) -> std::io::Result<PathBuf> {
     let mut file_path = PathBuf::new();
     file_path.push("site_maps");
     if !file_path.exists() {

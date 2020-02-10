@@ -27,6 +27,7 @@ use crate::web::errors::ServiceError::InternalServerError;
 
 use super::db_helper::auto_create_site;
 use super::errors::{ServiceError, ServiceResult};
+use crate::web::site_map_service::get_file_from_site;
 
 pub struct Context {
     pub app: Arc<AppData>,
@@ -161,6 +162,12 @@ impl Site {
         }).collect();
 
         Ok(names)
+    }
+
+    fn has_image(&self, ctx: &Context) -> ServiceResult<bool> {
+        Ok(get_file_from_site(self.id)
+            .map_err(|x| ServiceError::InternalServerError(x.to_string()))?
+            .exists())
     }
 }
 
