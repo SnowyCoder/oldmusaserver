@@ -6,6 +6,9 @@ use std::panic;
 use serde_json::json;
 
 use common::graphql::*;
+use actix_web::test::TestRequest;
+use actix_web::http::header;
+use actix_http::http::StatusCode;
 
 
 mod common;
@@ -339,4 +342,73 @@ fn test_user_password_misc() {
 }
 
 // TODO: test alarm controller
-// TODO: test image resizing
+
+#[test]
+fn test_image_resize() {
+    let mut tester = init_app();
+    tester.login_root();
+
+    // Create site
+    let site_id = tester.submit(query(r#"mutation {
+        addSite(data: {}) { id }
+    }"#))["id"].to_i64();
+    let site_map_uri = format!("/api/site_map/{}", site_id);
+
+    let res = tester.submit_raw_req(
+        TestRequest::post()
+            .uri(&format!("{}?width={}&height={}", site_map_uri, 3840, 2160))
+            .header(header::CONTENT_TYPE, "image/png")
+            .set_payload("first png image")
+    );
+    assert_eq!(StatusCode::OK, res.0);
+
+    // Create sensors
+    let res = tester.submit_all(
+        query(r#"mutation createSensorsTIR($siteId: Int!) {
+            s1: addSensor(siteId: $siteId, data: { locX: 10,  locY: 20  }) { id }
+            s2: addSensor(siteId: $siteId, data: { locX: 2,   locY: 3   }) { id }
+            s3: addSensor(siteId: $siteId, data: { locX: 413, locY: 125 }) { id }
+        }"#)
+            .add_variable("siteId", site_id)
+    );
+    let s1 = res["s1"]["id"].to_i64();
+    let s2 = res["s2"]["id"].to_i64();
+    let s3 = res["s3"]["id"].to_i64();
+
+    let res = tester.submit_raw_req(TestRequest::get().uri(&site_map_uri));
+    assert_eq!(StatusCode::OK, res.0);
+    assert_eq!("first png image", res.1);
+
+    let res = tester.submit_raw_req(
+        TestRequest::post()
+            .uri(&format!("{}?width={}&height={}", site_map_uri, 7680, 4320))
+            .header(header::CONTENT_TYPE, "image/png")
+            .set_payload("second png image")
+    );
+    assert_eq!(StatusCode::OK, res.0);
+
+    // Check that the images have been resized
+    let res = tester.submit(
+        query(r#"
+        query querySitesTIR($siteId: Int!) {
+            site(id: $siteId) {
+                sensors {
+                    id, locX, locY
+                }
+            }
+        }"#).add_variable("siteId", site_id)
+    );
+    assert_eq_set(
+        json!([
+            { "id": s1, "locX": 20, "locY": 40 },
+            { "id": s2, "locX": 4, "locY": 6 },
+            { "id": s3, "locX": 826, "locY": 250 }
+        ]),
+        res["sensors"].clone()
+    );
+
+    // Cleanup
+    tester.submit(query(r#"mutation deleteSite($id: Int!) {
+        deleteSite(id: $id)
+    }"#).add_variable("id", site_id));
+}

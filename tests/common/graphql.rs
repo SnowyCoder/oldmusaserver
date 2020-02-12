@@ -6,12 +6,15 @@ use std::ops::DerefMut;
 use std::rc::Rc;
 use std::sync::Mutex;
 
-use actix_http::cookie::CookieJar;
 use actix_http::Request;
+use actix_http::cookie::CookieJar;
 use actix_identity::{CookieIdentityPolicy, IdentityService};
 use actix_web::{App, test};
 use actix_web::dev::{PayloadStream, Service, ServiceResponse};
-use actix_web::http::header;
+use actix_web::http::{header, StatusCode};
+use actix_web::test::TestRequest;
+use actix_web::web::Bytes;
+use futures::executor::block_on;
 use juniper::DefaultScalarValue;
 use juniper::http::GraphQLRequest;
 use rand::Rng;
@@ -20,7 +23,6 @@ use serde_json::json;
 use serde_json::Value;
 
 use oldmusa_server::*;
-use futures::executor::block_on;
 
 lazy_static! {
     static ref MIGRATION_SETUP: Mutex<()> = Mutex::new(());
@@ -95,7 +97,7 @@ impl Into<GraphQLRequest> for GraphQlQueryBuilder {
 
 fn json_object_extract_first(val: &Value) -> Option<Value> {
     match val.as_object().and_then(|x| x.values().next()) {
-        Some(x) => return Some(x.clone()),
+        Some(x) => Some(x.clone()),
         None => None,
     }
 }
@@ -108,20 +110,22 @@ pub fn create_random_username() -> String {
 pub trait GraphQlTester : Clone {
     fn submit_raw<R: Into<GraphQLRequest>>(&mut self, query: R) -> Result<Value, Vec<ExecutionError>>;
 
+    fn submit_raw_req(&mut self, req: TestRequest) -> (StatusCode, Bytes);
+
     fn submit<R: Into<GraphQLRequest>>(&mut self, query: R) -> Value {
         let x = self.submit_raw(query);
         match x {
-            Ok(val) => return json_object_extract_first(&val).expect("Cannot parse value"),
+            Ok(val) => json_object_extract_first(&val).expect("Cannot parse value"),
             Err(errors) => Self::manage_errors(errors),
-        };
+        }
     }
 
     fn submit_all<R: Into<GraphQLRequest>>(&mut self, query: R) -> Value {
         let x = self.submit_raw(query);
         match x {
-            Ok(val) => return val,
+            Ok(val) => val,
             Err(errors) => Self::manage_errors(errors),
-        };
+        }
     }
 
     fn manage_errors(errors: Vec<ExecutionError>) -> ! {
@@ -188,10 +192,32 @@ impl<S, B, E> GraphQlTester for GraphQlTesterImpl<S, B, E>
         exec_graphql_raw(self.service.borrow_mut().deref_mut(), &mut self.cookies, query)
     }
 
+    fn submit_raw_req(&mut self, mut req: TestRequest) -> (StatusCode, Bytes) {
+        // Add auth cookies
+        for cookie in self.cookies.iter() {
+            req = req.cookie(cookie.clone());
+        }
+        // Build request
+        let req = req.to_request();
+
+        eprintln!("{:?}", req);
+        let app = self.service.borrow_mut();
+
+        // Process request
+        let result = block_on(test::call_service(app, req));
+        eprintln!("{:?}", result.response());
+
+        // Prepare results (also decoding the body).
+        let stats = result.status();
+        let body = block_on(test::read_body(result));
+        eprintln!("{:?}", body);
+        (stats, body)
+    }
+
     fn login_root(&mut self) {
         let global_cookiejar = ROOT_PASSWORD.lock().unwrap();
         if let Some(jar) = (&*global_cookiejar).clone().into_inner() {
-            self.cookies = jar.clone();
+            self.cookies = jar;
         } else {
             self.data.setup_root_password("password".to_string(), true).unwrap();
             self.submit(query(r#"mutation { login(auth: { username: "root", password: "password" }) { id } }"#));

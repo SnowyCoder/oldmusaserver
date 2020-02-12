@@ -48,10 +48,16 @@ pub struct Site {
     pub name: Option<String>,
     pub id_cnr: Option<String>,
     pub clock: chrono::NaiveDateTime,
+    pub image_width: Option<i32>,
+    pub image_height: Option<i32>,
 }
-pub type SiteAllColumns = (site::dsl::id, site::dsl::name, site::dsl::id_cnr, site::dsl::clock);
+pub type SiteAllColumns = (
+    site::dsl::id, site::dsl::name, site::dsl::id_cnr, site::dsl::clock, site::dsl::image_width,
+    site::dsl::image_height
+);
 pub const SITE_ALL_COLUMNS: SiteAllColumns = (
-    site::dsl::id, site::dsl::name, site::dsl::id_cnr, site::dsl::clock
+    site::dsl::id, site::dsl::name, site::dsl::id_cnr, site::dsl::clock, site::dsl::image_width,
+    site::dsl::image_height
 );
 
 

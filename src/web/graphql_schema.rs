@@ -1,6 +1,7 @@
 extern crate dotenv;
 
 use std::cell::RefCell;
+use std::fs;
 use std::ops::Deref;
 use std::string::ToString;
 use std::sync::{Arc, Mutex};
@@ -24,10 +25,10 @@ use crate::schema::*;
 use crate::security::PermissionCheckable;
 use crate::web::db_helper::auto_create_sensor;
 use crate::web::errors::ServiceError::InternalServerError;
+use crate::web::site_map_service::get_file_from_site;
 
 use super::db_helper::auto_create_site;
 use super::errors::{ServiceError, ServiceResult};
-use crate::web::site_map_service::get_file_from_site;
 
 pub struct Context {
     pub app: Arc<AppData>,
@@ -133,6 +134,14 @@ impl Site {
 
     pub fn id_cnr(&self) -> Option<&str> {
         self.id_cnr.as_ref().map(|x| x.as_str())
+    }
+
+    pub fn image_width(&self) -> Option<i32> {
+        self.image_width
+    }
+
+    pub fn image_height(&self) -> Option<i32> {
+        self.image_height
     }
 
     pub fn sensors(&self, ctx: &Context) -> ServiceResult<Vec<Sensor>> {
@@ -866,10 +875,20 @@ impl MutationRoot {
             .execute(&conn)?;
 
         if del_count != 1 {
-            Err(ServiceError::NotFound("Site".to_string()))
-        } else {
-            Ok(true)
+            return Err(ServiceError::NotFound("Site".to_string()))
         }
+
+        // Delete site image
+        let image_path = match get_file_from_site(id) {
+            Ok(x) => x,
+            Err(e) => return Err(ServiceError::InternalServerError(e.to_string())),
+        };
+        if image_path.exists() {
+            fs::remove_file(image_path)
+                .map_err(|x| ServiceError::InternalServerError(x.to_string()))?;
+        }
+
+        Ok(true)
     }
 
     fn add_sensor(ctx: &Context, site_id: IdType, data: SensorCreateInput) -> ServiceResult<Sensor> {

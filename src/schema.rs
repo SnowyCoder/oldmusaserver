@@ -36,6 +36,8 @@ table! {
         name -> Nullable<Varchar>,
         id_cnr -> Nullable<Varchar>,
         clock -> Timestamp,
+        image_width -> Nullable<Int4>,
+        image_height -> Nullable<Int4>,
     }
 }
 
