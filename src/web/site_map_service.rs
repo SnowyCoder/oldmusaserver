@@ -1,4 +1,5 @@
 use std::fs;
+use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
 use std::string::ToString;
@@ -6,7 +7,9 @@ use std::string::ToString;
 use actix_files::NamedFile;
 use actix_identity::Identity;
 use actix_web::{error, Error, HttpResponse, web};
-use futures::{future::{Either, err}, Future, Stream};
+use actix_web::error::BlockingError;
+use actix_web::http::StatusCode;
+use futures::StreamExt;
 
 use crate::AppData;
 use crate::models::{IdType, User};
@@ -38,7 +41,7 @@ fn ensure_site_visible(ctx: &AppData, identity: Identity, site_id: IdType) -> Se
     parse_user_required(ctx, identity)?.ensure_site_visible(ctx, site_id)
 }
 
-pub fn image_download(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>) -> ServiceResult<NamedFile> {
+pub async fn image_download(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>) -> ServiceResult<NamedFile> {
     ensure_site_visible(&ctx, identity, *site_id)?;
     let path = get_file_from_site(*site_id)
         .map_err(|x| ServiceError::InternalServerError(x.to_string()))
@@ -53,42 +56,43 @@ pub fn image_download(ctx: web::Data<AppData>, identity: Identity, site_id: web:
     Ok(path)
 }
 
-pub fn image_upload(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>, payload: web::Payload) -> impl Future<Item = HttpResponse, Error = Error> {
+pub async fn image_upload(
+    ctx: web::Data<AppData>,
+    identity: Identity,
+    site_id: web::Path<IdType>,
+    mut payload: web::Payload
+) -> Result<HttpResponse, Error> {
     if let Err(x) = ensure_admin(&ctx, identity) {
-        return Either::A(err(x.into()));
+        return Err(x.into());
     };
 
-    let file = match get_file_from_site(*site_id).and_then(fs::File::create) {
+    let mut file = match get_file_from_site(*site_id).and_then(fs::File::create) {
         Ok(file) => file,
-        Err(e) => return Either::A(err(error::ErrorInternalServerError(e))),
+        Err(e) => return Err(error::ErrorInternalServerError(e)),
     };
 
-    Either::B(payload
-        //.from_err()
-        .fold((file, 0i64), move |(mut file, mut len), chunk| {
-            web::block(move || {
-                file.write_all(chunk.as_ref()).map_err(|e| {
-                    eprintln!("file.write_all failed: {:?}", e);
-                    error::PayloadError::Io(e)
-                })?;
-                len += chunk.len() as i64;
-                Ok((file, len))
-            })
-                .map_err(|e: error::BlockingError<error::PayloadError>| {
-                    match e {
-                        error::BlockingError::Error(e) => e,
-                        error::BlockingError::Canceled => error::PayloadError::Incomplete(None),
-                    }
-                })
-        })
-        .map(|(_, x)| HttpResponse::Ok().json(x))
-        .map_err(|e| {
-            eprintln!("save_file failed, {:?}", e);
-            error::ErrorInternalServerError(e)
-        }))
+    let mut len: i64 = 0;
+    while let Some(chunk) = payload.next().await {
+        let chunk = chunk?;
+        let chunk_len = chunk.len() as i64;
+
+        let res: Result<File, BlockingError<error::PayloadError>> = web::block(move || {
+            file.write_all(chunk.as_ref()).map_err(|e| {
+                eprintln!("file.write_all failed: {:?}", e);
+                error::PayloadError::Io(e)
+            })?;
+            Ok((file))
+        }).await;
+        file = res?;
+
+        len += chunk_len;
+    }
+    // eprintln!("save_file failed, {:?}", e);
+    //            error::ErrorInternalServerError(e)
+    Ok(HttpResponse::Ok().json(len))
 }
 
-pub fn image_delete(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>) -> ServiceResult<()> {
+pub async fn image_delete(ctx: web::Data<AppData>, identity: Identity, site_id: web::Path<IdType>) -> ServiceResult<HttpResponse> {
     ensure_admin(&ctx, identity)?;
     get_file_from_site(*site_id)
         .map_err(|x| ServiceError::InternalServerError(x.to_string()))
@@ -98,5 +102,5 @@ pub fn image_delete(ctx: web::Data<AppData>, identity: Identity, site_id: web::P
             } else { Err(ServiceError::NotFound("Image".to_string())) }
         })?;
 
-    Ok(())
+    Ok(HttpResponse::new(StatusCode::NO_CONTENT))
 }

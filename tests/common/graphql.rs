@@ -20,6 +20,7 @@ use serde_json::json;
 use serde_json::Value;
 
 use oldmusa_server::*;
+use futures::executor::block_on;
 
 lazy_static! {
     static ref MIGRATION_SETUP: Mutex<()> = Mutex::new(());
@@ -224,7 +225,7 @@ pub fn init_app() -> impl GraphQlTester {
         data.setup_migrations().unwrap();
     }
 
-    let service = test::init_service(
+    let service = block_on(test::init_service(
         App::new()
             .data(data.clone())
             .wrap(IdentityService::new(
@@ -232,7 +233,7 @@ pub fn init_app() -> impl GraphQlTester {
                     .name("auth-cookie")
                     .secure(false)))
             .configure(api_service::config)
-    );
+    ));
 
     GraphQlTesterImpl {
         service: Rc::new(RefCell::new(service)),
@@ -263,11 +264,12 @@ fn exec_graphql_raw<S, B, E, R>(app: &mut S, cookies: &mut CookieJar, req: R) ->
 {
     let greq = graphql_request(req, cookies);
 
-    let result = test::call_service(app, greq);
+    let result = block_on(test::call_service(app, greq));
     for cookie in result.response().cookies() {
         cookies.add(cookie.into_owned())
     }
-    let str = std::str::from_utf8(test::read_body(result).as_ref()).unwrap().to_string();
+    let body = block_on(test::read_body(result));
+    let str = std::str::from_utf8(body.as_ref()).unwrap().to_string();
     let res = serde_json::from_str::<GraphQLResult>(str.as_str()).unwrap();
     if res.errors.is_some() {
         return Err(res.errors.unwrap())

@@ -8,7 +8,8 @@ fn expect_env_var(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{} must be set", name))
 }
 
-fn main() -> std::io::Result<()> {
+#[actix_rt::main]
+async fn main() -> std::io::Result<()> {
     dotenv::dotenv().ok();
     env_logger::init();
 
@@ -26,11 +27,6 @@ fn main() -> std::io::Result<()> {
 
     data.setup_migrations().unwrap();
     data.setup_root_password(root_default_password, root_password_override).unwrap();
-
-    let system = actix_rt::System::builder()
-        .name("root")
-        .stop_on_panic(false)
-        .build();
 
     let actor = alarm::AlarmActor {
         app_data: data.clone()
@@ -55,7 +51,6 @@ fn main() -> std::io::Result<()> {
             .service(web::resource("/stest").route(web::get().to(test_sensor)))
     })
         .bind("0.0.0.0:8080")?
-        .start();
-
-    system.run()
+        .run()
+        .await
 }

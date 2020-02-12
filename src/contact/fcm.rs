@@ -2,10 +2,6 @@ use std::collections::HashSet;
 
 use diesel::prelude::*;
 use fcm::MessageBuilder;
-use futures::{
-    Future,
-    future::join_all,
-};
 use log::info;
 use serde::Serialize;
 
@@ -24,7 +20,7 @@ pub struct FcmContacter {
 impl FcmContacter {
     pub fn new(api_key: String) -> Self {
         FcmContacter {
-            fcm_client: fcm::Client::new().unwrap(),
+            fcm_client: fcm::Client::new(),
             api_key
         }
     }
@@ -57,7 +53,7 @@ impl FcmContacter {
         Ok(res.drain().collect())
     }
 
-    pub fn send_alarm(&self, conn: &DbConnection, data: &SensorRangeAlarmData) -> Result<Box<dyn Future<Item = (), Error = ()>>, String> {
+    pub async fn send_alarm(&self, conn: &DbConnection, data: &SensorRangeAlarmData) -> Result<(), String> {
         let payload = SensorRangeAlarmMessagePayload {
             mex_type: "sensor_range_alarm".to_string(),
             site_name: data.site_name.to_string(),
@@ -68,27 +64,20 @@ impl FcmContacter {
 
         let contacted = self.get_fcm_site_receivers(conn, data.site_id)?;
 
-
-        Ok(self.send_message(&payload, contacted))
+        self.send_message(&payload, contacted).await;
+        Ok(())
     }
 
-    pub fn send_message<T: Serialize>(&self, message: &T, ids: Vec<String>) -> Box<dyn Future<Item = (), Error = ()>> {
-        let futures: Vec<_> = ids.chunks(FCM_MAX_RECIPIENTS as usize).map(|id_chunks| {
+    pub async fn send_message<T: Serialize>(&self, message: &T, ids: Vec<String>) {
+        for id_chunks in ids.chunks(FCM_MAX_RECIPIENTS as usize) {
             let mut builder = MessageBuilder::new_multi(&self.api_key, id_chunks);
             builder.data(message).unwrap();
             let message = builder.finalize();
 
-            self.fcm_client.send(message)
-                .map(|_| { })
-                .map_err(|err| {
-                    info!("Error sending alarm: {:?}", err);
-                })
-        }).collect();
-
-        let future = join_all(futures)
-            .map(|_| {})
-            .map_err(|_| {});
-        Box::new(future)
+            if let Err(err) = self.fcm_client.send(message).await {
+                info!("Error sending alarm: {:?}", err);
+            }
+        }
     }
 }
 

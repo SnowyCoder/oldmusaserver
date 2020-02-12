@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use diesel::PgConnection;
 use diesel::prelude::*;
-use futures::Future;
-use futures::future::join_all;
 use log::warn;
 
 use crate::models::IdType;
@@ -48,7 +46,7 @@ impl Contacter {
         Self::new(fcm_api_key)
     }
 
-    pub fn send_alarm(&self, conn: &DbConnection, channel_id: IdType, measure: f64, _measure_type: MeasureExtremeType) -> Result<impl Future<Item = (), Error = ()>, String> {
+    pub async fn send_alarm(&self, conn: &DbConnection, channel_id: IdType, measure: f64, _measure_type: MeasureExtremeType) -> Result<(), String> {
         use crate::schema::{
             channel::dsl as channel_dsl,
             sensor::dsl as sensor_dsl,
@@ -69,15 +67,13 @@ impl Contacter {
             value: format!("{} {}", measure, data.4.unwrap_or_else(|| "".to_string()))
         };
 
-        let mut futures = Vec::new();
-
         if let Some(fcm) = self.fcm_client.as_ref() {
-            futures.push(Box::new(fcm.send_alarm(conn, &payload)?));
+            fcm.send_alarm(conn, &payload).await?;
         } else {
             warn!("FCM disabled, skipping alarm notification")
         }
 
-        Ok(join_all(futures).map(|_| {}).map_err(|_| {}))
+        Ok(())
     }
 }
 

@@ -11,8 +11,6 @@ use diesel::{
     prelude::*,
     result::Error as DieselError,
 };
-use futures::future::join_all;
-use futures::prelude::*;
 use log::{debug, warn};
 use mysql::error::Error as MysqlError;
 use mysql::error::Result as MysqlResult;
@@ -245,8 +243,7 @@ fn load_alarmed_data(conn: &Connection) -> QueryResult<Vec<AlarmedChannelData>> 
 /// the DBMS do the computations.
 /// Then the alarmed channels are computed: for each alarmed channel the last measure found is
 /// queried, then if its within the min-max range the alarm is terminated.
-pub fn check_measures(contacter: &Contacter, conn: &Connection, pool: &mysql::Pool) -> Result<Box<dyn Future<Item = (), Error = ()>>, DatabaseError> {
-    let mut started_futures = vec![];
+pub async fn check_measures(contacter: &Contacter, conn: &Connection, pool: &mysql::Pool) -> Result<(), DatabaseError> {
     let clocks = load_site_clocks(conn)?;
 
     let mut clocks_data: Vec<(IdType, (f64, f64, NaiveDateTime))> = vec![];
@@ -311,8 +308,7 @@ pub fn check_measures(contacter: &Contacter, conn: &Connection, pool: &mysql::Po
                         } else {
                             (channel_data.max_value, MeasureExtremeType::Max)
                         };
-                        let future = alarm_begin(contacter, conn, alarm_data.channel_id, measure, measure_type)?;
-                        started_futures.push(future)
+                        alarm_begin(contacter, conn, alarm_data.channel_id, measure, measure_type).await?;
                     }
                 }
             }
@@ -328,10 +324,10 @@ pub fn check_measures(contacter: &Contacter, conn: &Connection, pool: &mysql::Po
         }
     }
 
-    Ok(Box::new(join_all(started_futures).map(|_| {})))
+    Ok(())
 }
 
-fn alarm_begin(contacter: &Contacter, conn: &Connection, channel_id: IdType, measure: f64, measure_type: MeasureExtremeType) -> Result<Box<dyn Future<Item = (), Error = ()>>, DatabaseError> {
+async fn alarm_begin(contacter: &Contacter, conn: &Connection, channel_id: IdType, measure: f64, measure_type: MeasureExtremeType) -> Result<(), DatabaseError> {
     use crate::schema::channel::dsl;
     warn!("alarm_begin({} {} {:?})", channel_id, measure, measure_type);
 
@@ -339,9 +335,9 @@ fn alarm_begin(contacter: &Contacter, conn: &Connection, channel_id: IdType, mea
         .set(dsl::alarmed.eq(true))
         .execute(conn)?;
 
-    let future = contacter.send_alarm(conn, channel_id, measure, measure_type)?;
+    contacter.send_alarm(conn, channel_id, measure, measure_type).await?;
 
-    Ok(Box::new(future))
+    Ok(())
 }
 
 fn alarm_end(conn: &Connection, channel_id: IdType) -> QueryResult<()> {

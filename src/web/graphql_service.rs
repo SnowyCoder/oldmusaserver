@@ -3,18 +3,17 @@ use std::sync::Mutex;
 
 use actix_identity::Identity;
 use actix_web::{Error, HttpResponse, web, HttpRequest, http::Uri, http::PathAndQuery};
-use futures::future::Future;
 use juniper::http::{graphiql::graphiql_source, GraphQLRequest};
 
 use crate::AppData;
 
 use super::graphql_schema;
 
-pub fn graphql(
+pub async fn graphql(
     ctx: web::Data<AppData>,
     identity: Identity,
     data: web::Json<GraphQLRequest>,
-) -> impl Future<Item = HttpResponse, Error = Error> {
+) -> Result<HttpResponse, Error> {
     let original_identity = identity.identity();
 
     let req_ctx = graphql_schema::Context {
@@ -26,26 +25,22 @@ pub fn graphql(
     // dbg!(data.clone());
     // eprintln!("---------------------");
 
-    web::block(move || {
+    let (body, context) = web::block(move || {
         let res = data.execute(&req_ctx.app.graphql_schema, &req_ctx);
         Ok::<_, serde_json::error::Error>((serde_json::to_string(&res)?, req_ctx))
-    })
-        .map_err(Error::from)
-        .and_then(move |data| {
-            let (body, context) = data;
+    }).await?;
 
-            let new_identity = context.identity.into_inner().unwrap().into_inner();
-            if new_identity != original_identity {
-                match new_identity {
-                    None => identity.forget(),
-                    Some(x) => identity.remember(x),
-                }
-            }
+    let new_identity = context.identity.into_inner().unwrap().into_inner();
+    if new_identity != original_identity {
+        match new_identity {
+            None => identity.forget(),
+            Some(x) => identity.remember(x),
+        }
+    }
 
-            Ok(HttpResponse::Ok()
-                .content_type("application/json")
-                .body(body))
-        })
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .body(body))
 }
 
 pub fn graphiql(request: HttpRequest) -> HttpResponse {
