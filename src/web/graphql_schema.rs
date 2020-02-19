@@ -428,8 +428,8 @@ impl QueryRoot {
         "1.0"
     }
 
-    fn user_me(ctx: &Context) -> ServiceResult<User> {
-        ctx.parse_user_required()
+    fn user_me(ctx: &Context) -> ServiceResult<Option<User>> {
+        ctx.parse_user()
     }
 
     fn users(ctx: &Context) -> ServiceResult<Vec<User>> {
