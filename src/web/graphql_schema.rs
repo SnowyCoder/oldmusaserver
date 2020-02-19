@@ -317,17 +317,50 @@ impl Channel {
             site::dsl as site_dsl,
         };
 
+        let mut channel = match self.id_cnr.as_ref() {
+            None => return Ok(None),
+            Some(x) => x.clone()
+        };
+
+        let first_separator = channel.find('.');
+        let second_separator = if let Some(findex) = first_separator {
+            channel[findex + 1..].find('.')
+        } else { None };
+
+        if let (Some(first_index), Some(second_index)) = (first_separator, second_separator) {
+            // Shortcut, we already know site, sensor and channel ids, we just need to parse them
+            // Don't even need to open a connection
+            // format: site.sensor.channel
+            //             |      ^second_index
+            //             ^first_index
+            return Ok(Some((
+                channel[0..first_index].to_string(),
+                channel[first_index + 1..second_index].to_string(),
+                channel[second_index + 1..].to_string()
+            )));
+        }
+
+        // No shortcut allowed, we need at least the cnr_site_id
+        // Since we need it we'll get both site_id and sensor_id from the query and then we'll
+        // override the sensor_id if a separator is present (to maximize efficiency we should
+        // separate the queries but it's not that important, the inner joins always take place so
+        // we could only remove the extra sensor_id string...)
+
         let conn = ctx.get_connection()?;
 
-        let site_sensor = channel_dsl::channel.find(self.id)
+        let mut site_sensor = channel_dsl::channel.find(self.id)
             .inner_join(sensor_dsl::sensor.inner_join(site_dsl::site))
             .select((site_dsl::id_cnr, sensor_dsl::id_cnr))
             .get_result::<(Option<String>, Option<String>)>(&conn)?;
 
-        let channel = self.id_cnr.clone();
+        if let Some(first_index) = first_separator {
+            // format: sensor.channel
+            site_sensor.1 = Some(channel[0..first_index].to_string());
+            channel = channel[first_index + 1..].to_string();
+        }
 
-        let res = if let ((Some(site_id), Some(sensor_id)), Some(channel_id)) = (site_sensor, channel) {
-            Some((site_id, sensor_id, channel_id))
+        let res = if let (Some(site_id), Some(sensor_id)) = site_sensor {
+            Some((site_id, sensor_id, channel))
         } else { None };
 
         Ok(res)
