@@ -39,7 +39,7 @@ fn guess_channel_info(m_type: &str) -> ChannelDetectedData {
         } else if m_type.starts_with("T_RUG") {
             Some("T. Rugiada".to_string())
         } else {
-            None
+            Some("Temperatura".to_string())
         };
         ChannelDetectedData {
             measure_unit: "C°".to_string(),
