@@ -326,7 +326,8 @@ fn test_user_password_misc() {
         .add_variable("userId", user1_id)
         .add_variable("newPass", "password13")
     );
-    user_tester.submit_raw(query("query { userMe { id } }")).expect_service_error("LOGIN_REQUIRED");
+    let res = user_tester.submit(query("query { userMe { id } }"));
+    assert_eq!(res, json!(null));
 
     // Cleanup
     tester.submit(
