@@ -13,6 +13,7 @@ use super::controller::check_measures;
 
 pub struct AlarmActor {
     pub app_data: AppData,
+    pub sleep_interval: Duration,
 }
 
 impl AlarmActor {
@@ -64,8 +65,10 @@ impl Actor for AlarmActor {
     fn started(&mut self, ctx: &mut Context<Self>) {
         info!("starting the alarm actor");
 
-        IntervalFunc::new(Duration::from_millis(60000), Self::on_tick)
+        IntervalFunc::new(self.sleep_interval, Self::on_tick)
             .finish()
             .spawn(ctx);
+
+        self.on_tick(ctx);
     }
 }

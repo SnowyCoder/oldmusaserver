@@ -3,6 +3,7 @@ use actix_identity::{CookieIdentityPolicy, IdentityService};
 use actix_web::{App, HttpServer, middleware, web};
 
 use oldmusa_server::*;
+use std::time::Duration;
 
 fn expect_env_var(name: &str) -> String {
     std::env::var(name).unwrap_or_else(|_| panic!("{} must be set", name))
@@ -29,7 +30,8 @@ async fn main() -> std::io::Result<()> {
     data.setup_root_password(root_default_password, root_password_override).unwrap();
 
     let actor = alarm::AlarmActor {
-        app_data: data.clone()
+        app_data: data.clone(),
+        sleep_interval: Duration::from_secs(expect_env_var("MEASURE_CONTROL_SLEEP_TIME").parse().expect("Cannot parse MEASURE_CONTROL_SLEEP_TIME"))
     };
     actor.start();
 
