@@ -32,7 +32,7 @@ impl PermissionType {
     }
 }
 
-#[derive(Debug, Queryable, Insertable)]
+#[derive(Clone, Debug, Queryable, Insertable)]
 #[table_name = "user_account"]
 pub struct User {
     pub id: IdType,

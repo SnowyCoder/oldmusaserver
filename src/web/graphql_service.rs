@@ -1,8 +1,5 @@
-use std::cell::RefCell;
-use std::sync::Mutex;
-
 use actix_identity::Identity;
-use actix_web::{Error, HttpResponse, web, HttpRequest, http::Uri, http::PathAndQuery};
+use actix_web::{Error, http::PathAndQuery, http::Uri, HttpRequest, HttpResponse, web};
 use juniper::http::{graphiql::graphiql_source, GraphQLRequest};
 
 use crate::AppData;
@@ -16,10 +13,7 @@ pub async fn graphql(
 ) -> Result<HttpResponse, Error> {
     let original_identity = identity.identity();
 
-    let req_ctx = graphql_schema::Context {
-        app: ctx.into_inner(),
-        identity: Mutex::from(RefCell::from(original_identity.clone()))
-    };
+    let req_ctx = graphql_schema::Context::new(ctx.into_inner(), original_identity.clone());
 
     // eprintln!("---------------------");
     // dbg!(data.clone());

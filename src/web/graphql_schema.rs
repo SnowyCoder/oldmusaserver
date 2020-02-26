@@ -33,22 +33,50 @@ use super::errors::{ServiceError, ServiceResult};
 pub struct Context {
     pub app: Arc<AppData>,
     pub identity: Mutex<RefCell<Option<String>>>,
+    user: RefCell<Option<Option<User>>>,
 }
 
 impl Context {
+    pub fn new(app_data: Arc<AppData>, original_identity: Option<String>, ) -> Context {
+        Context {
+            app: app_data,
+            identity: Mutex::new(RefCell::new(original_identity)),
+            user: RefCell::new(None),
+        }
+    }
+
     pub fn get_connection(&self) -> ServiceResult<PooledConnection<ConnectionManager<PgConnection>>> {
         Ok(self.app.pool.get()?)
     }
 
     pub fn parse_user(&self) -> ServiceResult<Option<User>> {
+        if let Some(user) = self.user.borrow().as_ref() {
+            return Ok(user.clone())
+        }
+
         let data_guard = self.identity.lock().unwrap();
         let data = data_guard.deref().borrow();
         let user = data.as_ref().and_then(|x| self.app.auth_cache.parse_identity(&self.app, x).transpose());
-        Ok(user.transpose()?)
+        let user = user.transpose()?;
+        self.user.replace(Some(user.clone()));
+        Ok(user)
     }
 
     pub fn parse_user_required(&self) -> ServiceResult<User> {
         self.parse_user()?.ok_or(ServiceError::LoginRequired)
+    }
+
+    pub fn save_user(&self, user: Option<&User>) {
+        if let Some(user) = user {
+            let identity = self.identity.lock().unwrap();
+            let id_str = self.app.auth_cache.save_identity(&user);
+            identity.replace(Some(id_str));
+            self.user.replace(Some(Some(user.clone())));
+        } else {
+            let identity = self.identity.lock().unwrap();
+            identity.replace(None);
+            self.user.replace(Some(None));
+        }
     }
 }
 
@@ -753,15 +781,12 @@ impl MutationRoot {
     fn login(ctx: &Context, auth: AuthInput) -> ServiceResult<User> {
         let user = ctx.app.auth_cache.verify_user(&ctx.app, auth.username, auth.password)?;
 
-        let identity = ctx.identity.lock().unwrap();
-        let id_str = ctx.app.auth_cache.save_identity(&user);
-        identity.replace(Some(id_str));
+        ctx.save_user(Some(&user));
         Ok(user)
     }
 
     fn logout(ctx: &Context) -> bool {// Logout cannot fail
-        let identity = ctx.identity.lock().unwrap();
-        identity.replace(None);
+        ctx.save_user(None);
         true
     }
 
@@ -782,9 +807,7 @@ impl MutationRoot {
         let res = ctx.app.auth_cache.update_user(&ctx.app, id, data.username, data.password, data.permission)?;
 
         if own_password_changed {
-            let identity = ctx.identity.lock().unwrap();
-            let id_str = ctx.app.auth_cache.save_identity(&res);
-            identity.replace(Some(id_str));
+            ctx.save_user(Some(&res));
         }
 
         Ok(res)
