@@ -22,8 +22,16 @@ async fn main() -> std::io::Result<()> {
     let root_default_password = expect_env_var("ROOT_DEFAULT_PASSWORD");
     let root_password_override = std::env::var("ROOT_PASSWORD_OVERRIDE").map(|x| !x.is_empty()).unwrap_or(false);
 
+    let quota_bank = quota::init(10000, 10);
+
     // create db connection pool
-    let data = AppData::new(password_secret_key, database_url, sensor_database_url, contact::Contacter::new_from_env());
+    let data = AppData::new(
+        password_secret_key,
+        database_url,
+        sensor_database_url,
+        contact::Contacter::new_from_env(),
+        Some(quota_bank)
+    );
     let domain: String = std::env::var("DOMAIN").unwrap_or_else(|_| "localhost".to_string());
 
     data.setup_migrations().unwrap();

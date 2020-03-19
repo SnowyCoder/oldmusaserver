@@ -26,6 +26,9 @@ pub enum ServiceError {
 
     #[display(fmt = "{} Already Present", _0)]
     AlreadyPresent(String),
+
+    #[display(fmt = "Too Many Requests")]
+    TooManyRequests,
 }
 
 impl juniper::IntoFieldError for ServiceError {
@@ -75,6 +78,12 @@ impl juniper::IntoFieldError for ServiceError {
                     "type": "ALREADY_PRESENT"
                 })
             ),
+            ServiceError::TooManyRequests => FieldError::new(
+                "Too many requests",
+                graphql_value!({
+                    "type": "TOO_MANY_REQUESTS"
+                })
+            )
         }
     }
 }
@@ -117,6 +126,7 @@ impl ResponseError for ServiceError {
             ServiceError::WrongPassword => HttpResponse::Unauthorized().message_body("Wrong Password".into()),
             ServiceError::LoginRequired => HttpResponse::Unauthorized().message_body("Login required".into()),
             ServiceError::AlreadyPresent(x) => HttpResponse::BadRequest().message_body(format!("{} Already Present", x).into()),
+            ServiceError::TooManyRequests => HttpResponse::new(StatusCode::TOO_MANY_REQUESTS),
         }
     }
 }

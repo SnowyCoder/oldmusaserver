@@ -237,7 +237,15 @@ impl AuthCache {// TODO, implement a cache
 }
 
 pub trait PermissionCheckable {
-    fn ensure_admin(&self) -> ServiceResult<()>;
+    fn get_permission(&self) -> PermissionType;
+
+    fn ensure_admin(&self) -> ServiceResult<()> {
+        if self.get_permission() != PermissionType::Admin {
+            Err(ServiceError::Unauthorized)
+        } else {
+            Ok(())
+        }
+    }
 
     fn ensure_site_visible(&self, ctx: &AppData, site_id: IdType) -> ServiceResult<()>;
 
@@ -247,12 +255,8 @@ pub trait PermissionCheckable {
 }
 
 impl PermissionCheckable for User {
-    fn ensure_admin(&self) -> Result<(), ServiceError> {
-        if PermissionType::from_char(self.permission.as_str()).unwrap_or(PermissionType::User) != PermissionType::Admin {
-            Err(ServiceError::Unauthorized)
-        } else {
-            Ok(())
-        }
+    fn get_permission(&self) -> PermissionType {
+        PermissionType::from_char(self.permission.as_str()).unwrap_or(PermissionType::User)
     }
 
     fn ensure_site_visible(&self, ctx: &AppData, site_id: IdType) -> ServiceResult<()> {

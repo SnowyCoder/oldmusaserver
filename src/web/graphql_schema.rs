@@ -2,9 +2,9 @@ extern crate dotenv;
 
 use std::cell::RefCell;
 use std::fs;
-use std::ops::Deref;
 use std::string::ToString;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use bigdecimal::{BigDecimal, ToPrimitive};
 use chrono::{NaiveDateTime, Utc};
@@ -30,18 +30,30 @@ use crate::web::site_map_service::get_file_from_site;
 use super::db_helper::auto_create_site;
 use super::errors::{ServiceError, ServiceResult};
 
+const REQ_COINS_MODIFIER_DB_QUERY: i64 = 10;
+const REQ_COINS_MODIFIER_FCM_OP: i64 = 300;
+const REQ_COINS_MODIFIER_PASSWORD_CHANGE: i64 = 400;
+const REQ_COINS_MODIFIER_LOGIN: i64 = 300;
+
 pub struct Context {
     pub app: Arc<AppData>,
-    pub identity: Mutex<RefCell<Option<String>>>,
-    user: RefCell<Option<Option<User>>>,
+    pub identity: RefCell<Option<String>>,
+    user: RefCell<Option<User>>,
+    rem_coins: AtomicI64,
 }
 
 impl Context {
-    pub fn new(app_data: Arc<AppData>, original_identity: Option<String>, ) -> Context {
+    pub fn new(
+        app_data: Arc<AppData>,
+        original_identity: Option<String>,
+        original_user: Option<User>,
+        remainig_coins: i64
+    ) -> Context {
         Context {
             app: app_data,
-            identity: Mutex::new(RefCell::new(original_identity)),
-            user: RefCell::new(None),
+            identity: RefCell::new(original_identity),
+            user: RefCell::new(original_user),
+            rem_coins: AtomicI64::new(remainig_coins),
         }
     }
 
@@ -49,34 +61,52 @@ impl Context {
         Ok(self.app.pool.get()?)
     }
 
-    pub fn parse_user(&self) -> ServiceResult<Option<User>> {
-        if let Some(user) = self.user.borrow().as_ref() {
-            return Ok(user.clone())
-        }
-
-        let data_guard = self.identity.lock().unwrap();
-        let data = data_guard.deref().borrow();
-        let user = data.as_ref().and_then(|x| self.app.auth_cache.parse_identity(&self.app, x).transpose());
-        let user = user.transpose()?;
-        self.user.replace(Some(user.clone()));
-        Ok(user)
+    pub fn raw_user_id(&self) -> Option<IdType> {
+        self.user.borrow().as_ref().map(|x| x.id)
     }
 
-    pub fn parse_user_required(&self) -> ServiceResult<User> {
-        self.parse_user()?.ok_or(ServiceError::LoginRequired)
+    pub fn get_user(&self) -> ServiceResult<Option<User>> {
+        self.check_request_balance()?;
+        Ok(self.user.borrow().clone())
     }
 
-    pub fn save_user(&self, user: Option<&User>) {
+    pub fn get_user_required(&self) -> ServiceResult<User> {
+        self.get_user()?.ok_or(ServiceError::LoginRequired)
+    }
+
+    pub fn save_user(&self, user: Option<User>) {
         if let Some(user) = user {
-            let identity = self.identity.lock().unwrap();
             let id_str = self.app.auth_cache.save_identity(&user);
-            identity.replace(Some(id_str));
-            self.user.replace(Some(Some(user.clone())));
+            self.identity.replace(Some(id_str));
+            self.user.replace(Some(user));
         } else {
-            let identity = self.identity.lock().unwrap();
-            identity.replace(None);
-            self.user.replace(Some(None));
+            self.identity.replace(None);
+            self.user.replace(None);
         }
+    }
+
+    pub fn spend_request_coins(&self, amount: i64) {
+        self.rem_coins.fetch_sub(amount, Ordering::Relaxed);
+    }
+
+    pub fn check_request_balance(&self) -> ServiceResult<()> {
+        match self.user.borrow().as_ref() {
+            None => return Ok(()),
+            Some(x) if x.get_permission() == PermissionType::Admin => {
+                return Ok(())
+            },
+            _ => {}// Continue checking
+        }
+        let balance = self.rem_coins.load(Ordering::Relaxed);
+        if balance <= 0 {
+            Err(ServiceError::TooManyRequests)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn get_quota_coins(&self) -> i64 {
+        self.rem_coins.load(Ordering::Relaxed)
     }
 }
 
@@ -106,10 +136,12 @@ fn load_user_sites(ctx: &Context, user_id: IdType) -> ServiceResult<Vec<Site>> {
 
     let conn = ctx.get_connection()?;
 
-    Ok(user_access::user_access.filter(user_access::user_id.eq(user_id))
+    let users = user_access::user_access.filter(user_access::user_id.eq(user_id))
         .inner_join(site_dsl::site)
         .select(SITE_ALL_COLUMNS)
-        .load::<Site>(&conn)?)
+        .load::<Site>(&conn)?;
+    ctx.spend_request_coins(users.len() as i64 * REQ_COINS_MODIFIER_DB_QUERY);
+    Ok(users)
 }
 
 fn load_user_sites_filtered(ctx: &Context, user_id: IdType, ids: Vec<IdType>) -> ServiceResult<Vec<Site>> {
@@ -118,11 +150,13 @@ fn load_user_sites_filtered(ctx: &Context, user_id: IdType, ids: Vec<IdType>) ->
 
     let conn = ctx.get_connection()?;
 
-    Ok(user_access::user_access.filter(user_access::user_id.eq(user_id))
+    let users = user_access::user_access.filter(user_access::user_id.eq(user_id))
         .inner_join(site_dsl::site)
         .filter(site_dsl::id.eq_any(ids))
         .select(SITE_ALL_COLUMNS)
-        .load::<Site>(&conn)?)
+        .load::<Site>(&conn)?;
+    ctx.spend_request_coins(users.len() as i64 * REQ_COINS_MODIFIER_DB_QUERY);
+    Ok(users)
 }
 
 #[juniper::object(
@@ -174,16 +208,19 @@ impl Site {
 
     pub fn sensors(&self, ctx: &Context) -> ServiceResult<Vec<Sensor>> {
         use crate::schema::sensor::dsl::*;
+        ctx.check_request_balance()?;
         let connection = ctx.get_connection()?;
         // TODO: paging
-        Ok(sensor.filter(site_id.eq(self.id))
-            .load::<Sensor>(&connection)?)
+        let sensors = sensor.filter(site_id.eq(self.id))
+            .load::<Sensor>(&connection)?;
+        ctx.spend_request_coins(sensors.len() as i64 * REQ_COINS_MODIFIER_DB_QUERY);
+        Ok(sensors)
     }
 
     /// Guesses the cnr sensor ids under this site based on recent readings,
     /// Admin privileges are required for this operation as it puts some stress on the database
     fn cnr_sensor_ids(&self, ctx: &Context) -> ServiceResult<Vec<String>> {
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = &ctx.app.sensor_pool;
 
         let id_cnr = match self.id_cnr.as_ref() {
@@ -197,11 +234,11 @@ impl Site {
         let names: Vec<String> = res.map(|row| {
             mysql::from_row::<String>(row.unwrap())
         }).collect();
-
         Ok(names)
     }
 
     fn has_image(&self, ctx: &Context) -> ServiceResult<bool> {
+        ctx.spend_request_coins(1);
         Ok(get_file_from_site(self.id)
             .map_err(|x| ServiceError::InternalServerError(x.to_string()))?
             .exists())
@@ -269,6 +306,8 @@ impl Sensor {
 
     pub fn status(&self, ctx: &Context) -> ServiceResult<SensorStateType> {
         use crate::schema::channel::dsl::*;
+        ctx.check_request_balance()?;
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_DB_QUERY);
 
         if !self.enabled {
             return Ok(SensorStateType::Disabled)
@@ -290,22 +329,28 @@ impl Sensor {
 
     pub fn site(&self, ctx: &Context) -> ServiceResult<Site> {
         use crate::schema::site::dsl::*;
+        ctx.check_request_balance()?;
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_DB_QUERY);
         let connection = ctx.get_connection()?;
         Ok(site.find(self.site_id).first::<Site>(&connection)?)
     }
 
     pub fn channels(&self, ctx: &Context) -> ServiceResult<Vec<Channel>> {
         use crate::schema::channel::dsl::*;
+        ctx.check_request_balance()?;
+
         let connection = ctx.get_connection()?;
         // TODO: paging
-        Ok(channel.filter(sensor_id.eq(self.id))
-            .load::<Channel>(&connection)?)
+        let channels = channel.filter(sensor_id.eq(self.id))
+            .load::<Channel>(&connection)?;
+        ctx.spend_request_coins(channels.len() as i64 * REQ_COINS_MODIFIER_DB_QUERY);
+        Ok(channels)
     }
 
     /// Guesses the cnr channel ids under this sensor based on recent readings,
     /// Admin privileges are required for this operation as it puts some stress on the database
     fn cnr_channel_ids(&self, ctx: &Context) -> ServiceResult<Vec<String>> {
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         use crate::schema::site::dsl as site_dsl;
 
         let conn = &ctx.app.sensor_pool;
@@ -435,11 +480,15 @@ impl Channel {
 
     pub fn sensor(&self, ctx: &Context) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl::*;
+        ctx.check_request_balance()?;
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_DB_QUERY);
         let connection = ctx.get_connection()?;
         Ok(sensor.find(self.sensor_id).first::<Sensor>(&connection)?)
     }
 
     pub fn readings(&self, ctx: &Context, start: NaiveDateTime, end: NaiveDateTime) -> ServiceResult<Vec<ReadingData>> {
+        ctx.check_request_balance()?;
+
         let ids = self.query_cnr_ids(ctx)?;
 
         let ids = match ids {
@@ -474,6 +523,8 @@ impl Channel {
             }).collect()
         }).map_err(|x| InternalServerError(x.to_string()))?;
 
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_DB_QUERY * 10); // TODO: adjust value
+
         Ok(data)
     }
 }
@@ -490,19 +541,20 @@ impl QueryRoot {
     }
 
     fn user_me(ctx: &Context) -> ServiceResult<Option<User>> {
-        ctx.parse_user()
+        ctx.get_user()
     }
 
     fn users(ctx: &Context) -> ServiceResult<Vec<User>> {
         use crate::schema::user_account::dsl::*;
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
 
         let connection = ctx.get_connection()?;
         Ok(user_account.load::<User>(&connection)?)
     }
 
     fn sites(ctx: &Context, ids: Option<Vec<IdType>>) -> ServiceResult<Vec<Site>> {
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+        ctx.check_request_balance()?;
 
         let len = ids.as_ref().map(|x| x.len());
 
@@ -541,7 +593,8 @@ impl QueryRoot {
         use crate::schema::site::dsl as site_dsl;
         use crate::schema::sensor::dsl as sensor_dsl;
 
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+        ctx.check_request_balance()?;
         let conn = ctx.get_connection()?;
 
         let is_admin =  PermissionType::from_char(user.permission.as_str()).unwrap_or(PermissionType::User) == PermissionType::Admin;
@@ -552,12 +605,14 @@ impl QueryRoot {
                 .filter(sensor_dsl::id.eq_any(ids))
                 .load::<Sensor>(&conn)?
         } else {
-            user_access::user_access
+            let sensors = user_access::user_access
                 .filter(user_access::user_id.eq(user.id))
                 .inner_join(site_dsl::site.inner_join(sensor_dsl::sensor))
                 .filter(sensor_dsl::id.eq_any(ids))
                 .select(SENSOR_ALL_COLUMNS)
-                .load::<Sensor>(&conn)?
+                .load::<Sensor>(&conn)?;
+            ctx.spend_request_coins(sensors.len() as i64 * REQ_COINS_MODIFIER_DB_QUERY);
+            sensors
         };
 
         if sensors.len() != ids_len {
@@ -572,7 +627,8 @@ impl QueryRoot {
         use crate::schema::sensor::dsl as sensor_dsl;
         use crate::schema::channel::dsl as channel_dsl;
 
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+        ctx.check_request_balance()?;
         let conn = ctx.get_connection()?;
 
         let is_admin =  PermissionType::from_char(user.permission.as_str()).unwrap_or(PermissionType::User) == PermissionType::Admin;
@@ -583,12 +639,14 @@ impl QueryRoot {
                 .filter(channel_dsl::id.eq_any(ids))
                 .load::<Channel>(&conn)?
         } else {
-            user_access::user_access
+            let channels = user_access::user_access
                 .filter(user_access::user_id.eq(user.id))
                 .inner_join(site_dsl::site.inner_join(sensor_dsl::sensor.inner_join(channel_dsl::channel)))
                 .filter(channel_dsl::id.eq_any(ids))
                 .select(CHANNEL_ALL_COLUMNS)
-                .load::<Channel>(&conn)?
+                .load::<Channel>(&conn)?;
+            ctx.spend_request_coins(channels.len() as i64 * REQ_COINS_MODIFIER_DB_QUERY);
+            channels
         };
 
         if channels.len() != ids_len {
@@ -598,7 +656,7 @@ impl QueryRoot {
     }
 
     fn user(ctx: &Context, id: IdType) -> ServiceResult<User> {
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
 
         if id == user.id {
             return Ok(user);
@@ -615,7 +673,9 @@ impl QueryRoot {
     fn site(ctx: &Context, id: IdType) -> ServiceResult<Site> {
         use crate::schema::site::dsl;
 
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+        ctx.check_request_balance()?;
+        ctx.spend_request_coins(2 * REQ_COINS_MODIFIER_DB_QUERY);
         user.ensure_site_visible(&ctx.app, id)?;// TODO: single query?
 
         let conn = ctx.get_connection()?;
@@ -631,7 +691,9 @@ impl QueryRoot {
     fn sensor(ctx: &Context, id: IdType) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+        ctx.check_request_balance()?;
+        ctx.spend_request_coins(2 * REQ_COINS_MODIFIER_DB_QUERY);
         user.ensure_sensor_visible(&ctx.app, id)?;
 
         let conn = ctx.get_connection()?;
@@ -647,7 +709,10 @@ impl QueryRoot {
     fn channel(ctx: &Context, id: IdType) -> ServiceResult<Channel> {
         use crate::schema::channel::dsl;
 
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+
+        ctx.check_request_balance()?;
+        ctx.spend_request_coins(2 * REQ_COINS_MODIFIER_DB_QUERY);
         user.ensure_channel_visible(&ctx.app, id)?;
 
         let conn = ctx.get_connection()?;
@@ -663,7 +728,7 @@ impl QueryRoot {
     /// Guesses the cnr site ids using the readings on the database,
     /// Admin privileges are required for this operation as it puts some stress on the database
     fn cnr_site_ids(ctx: &Context) -> ServiceResult<Vec<String>> {
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = &ctx.app.sensor_pool;
 
         let res = conn.prep_exec("SELECT DISTINCT idsito FROM t_rilevamento_dati;", ())?;
@@ -778,10 +843,12 @@ impl From<ChannelInput> for ChannelInputDb {
     Context = Context
 )]
 impl MutationRoot {
+    // TODO: client can strain the server with loop { login, logout }
     fn login(ctx: &Context, auth: AuthInput) -> ServiceResult<User> {
         let user = ctx.app.auth_cache.verify_user(&ctx.app, auth.username, auth.password)?;
 
-        ctx.save_user(Some(&user));
+        ctx.save_user(Some(user.clone()));
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_LOGIN);
         Ok(user)
     }
 
@@ -791,30 +858,32 @@ impl MutationRoot {
     }
 
     fn add_user(ctx: &Context, data: UserInput) -> ServiceResult<User> {
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         ctx.app.auth_cache.add_user(&ctx.app, data.username, data.password, data.permission)
     }
 
     fn update_user(ctx: &Context, id: IdType, data: UserUpdateInput) -> ServiceResult<User> {
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
+        ctx.check_request_balance()?;
 
         if id != user.id || data.username.as_ref().is_some() || data.permission.as_ref().is_some() {
             user.ensure_admin()?
         }
 
         let own_password_changed = id == user.id && data.password.as_ref().is_some();
+        ctx.spend_request_coins(10 * REQ_COINS_MODIFIER_DB_QUERY + if own_password_changed { REQ_COINS_MODIFIER_PASSWORD_CHANGE } else { 0 });
 
         let res = ctx.app.auth_cache.update_user(&ctx.app, id, data.username, data.password, data.permission)?;
 
         if own_password_changed {
-            ctx.save_user(Some(&res));
+            ctx.save_user(Some(res.clone()));
         }
 
         Ok(res)
     }
 
     fn delete_user(ctx: &Context, id: IdType) -> ServiceResult<bool> {
-        let user = ctx.parse_user_required()?;
+        let user = ctx.get_user_required()?;
         user.ensure_admin()?;
         if user.id == id {
             return Err(ServiceError::Unauthorized)// TODO: different error
@@ -824,7 +893,7 @@ impl MutationRoot {
     }
 
     fn give_user_access(ctx: &Context, user_id: IdType, site_ids: Vec<IdType>) -> ServiceResult<bool> {
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         for site_id in site_ids {
             ctx.app.auth_cache.give_access(&ctx.app, user_id, site_id)?;
         }
@@ -832,7 +901,7 @@ impl MutationRoot {
     }
 
     fn revoke_user_access(ctx: &Context, user_id: IdType, site_ids: Vec<IdType>) -> ServiceResult<bool> {
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         for site_id in site_ids {
             ctx.app.auth_cache.revoke_access(&ctx.app, user_id, site_id)?;
         }
@@ -841,7 +910,9 @@ impl MutationRoot {
 
     fn add_fcm_contact(ctx: &Context, registration_id: String) -> ServiceResult<bool> {
         use crate::schema::fcm_user_contact::dsl;
-        let user = ctx.parse_user_required()?;
+        ctx.check_request_balance()?;
+        let user = ctx.get_user_required()?;
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_FCM_OP);
 
         if registration_id.len() > 255 {
             return Err(ServiceError::BadRequest("registration_id too long".to_owned()))
@@ -862,7 +933,9 @@ impl MutationRoot {
 
     fn delete_fcm_contact(ctx: &Context, registration_id: String) -> ServiceResult<bool> {
         use crate::schema::fcm_user_contact::dsl;
-        let user = ctx.parse_user_required()?;
+        ctx.check_request_balance()?;
+        let user = ctx.get_user_required()?;
+        ctx.spend_request_coins(REQ_COINS_MODIFIER_FCM_OP);
 
         if registration_id.len() > 255 {
             return Ok(true)// Not even going to query the db, the string cannot be present
@@ -882,7 +955,7 @@ impl MutationRoot {
     fn add_site(ctx: &Context, data: SiteCreateInput) -> ServiceResult<Site> {
         use crate::schema::site::dsl as site_dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
 
         let auto_create = data.auto_create.unwrap_or(false);
         if auto_create && data.id_cnr.is_none() {
@@ -912,7 +985,7 @@ impl MutationRoot {
     fn update_site(ctx: &Context, id: IdType, data: SiteUpdateInput) -> ServiceResult<Site> {
         use crate::schema::site::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         Ok(diesel::update(dsl::site.find(id))
@@ -924,7 +997,7 @@ impl MutationRoot {
     fn delete_site(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         use crate::schema::site::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         let del_count = diesel::delete(dsl::site.find(id))
@@ -950,7 +1023,7 @@ impl MutationRoot {
     fn add_sensor(ctx: &Context, site_id: IdType, data: SensorCreateInput) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
 
         let auto_create = data.auto_create.unwrap_or(false);
         if auto_create && data.id_cnr.is_none() {
@@ -987,7 +1060,7 @@ impl MutationRoot {
     fn update_sensor(ctx: &Context, id: IdType, data: SensorUpdateInput) -> ServiceResult<Sensor> {
         use crate::schema::sensor::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         Ok(diesel::update(dsl::sensor.find(id))
@@ -998,7 +1071,7 @@ impl MutationRoot {
     fn delete_sensor(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         use crate::schema::sensor::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         let del_count = diesel::delete(dsl::sensor.find(id))
@@ -1014,7 +1087,7 @@ impl MutationRoot {
     fn add_channel(ctx: &Context, sensor_id: IdType, data: ChannelInput) -> ServiceResult<Channel> {
         use crate::schema::channel::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         let data: ChannelInputDb = data.into();
@@ -1027,7 +1100,7 @@ impl MutationRoot {
     fn update_channel(ctx: &Context, id: IdType, data: ChannelInput) -> ServiceResult<Channel> {
         use crate::schema::channel::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         let data: ChannelInputDb = data.into();
@@ -1040,7 +1113,7 @@ impl MutationRoot {
     fn delete_channel(ctx: &Context, id: IdType) -> ServiceResult<bool> {
         use crate::schema::channel::dsl;
 
-        ctx.parse_user_required()?.ensure_admin()?;
+        ctx.get_user_required()?.ensure_admin()?;
         let conn = ctx.get_connection()?;
 
         let del_count = diesel::delete(dsl::channel.find(id))

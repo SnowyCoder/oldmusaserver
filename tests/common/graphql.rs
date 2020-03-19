@@ -244,7 +244,7 @@ pub fn init_app() -> impl GraphQlTester {
     dotenv::dotenv().ok();
     let database_url = std::env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set");
     let sensor_database_url = std::env::var("SENSOR_DATABASE_URL").expect("SENSOR_DATABASE_URL must be set");
-    let data = AppData::new("a".repeat(32), database_url, sensor_database_url, contact::Contacter::new(None));
+    let data = AppData::new("a".repeat(32), database_url, sensor_database_url, contact::Contacter::new(None), None);
 
     {
         let _guard = MIGRATION_SETUP.lock().unwrap();

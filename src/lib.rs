@@ -14,6 +14,7 @@ use diesel::prelude::*;
 use diesel::r2d2::ConnectionManager;
 
 pub use web::api_service;
+pub use web::quota;
 
 use crate::models::PermissionType;
 use crate::web::errors::ServiceResult;
@@ -28,6 +29,7 @@ pub mod models;
 pub mod models_sensor;
 pub mod security;
 
+
 embed_migrations!();
 
 #[derive(Clone)]
@@ -37,10 +39,17 @@ pub struct AppData {
     pub graphql_schema: Arc<Schema>,
     pub auth_cache: security::AuthCache,
     pub contacter: contact::Contacter,
+    pub quota_bank: Option<web::quota::AppData>,
 }
 
 impl AppData {
-    pub fn new(password_secret_key: String, database_url: String, sensor_database_url: String, contacter: contact::Contacter) -> Self {
+    pub fn new(
+        password_secret_key: String,
+        database_url: String,
+        sensor_database_url: String,
+        contacter: contact::Contacter,
+        quota_bank: Option<web::quota::AppData>
+    ) -> Self {
         let pool = {
             let manager = ConnectionManager::<PgConnection>::new(database_url);
             r2d2::Pool::builder()
@@ -50,9 +59,9 @@ impl AppData {
         let sensor_pool = mysql::Pool::new_manual(0, 10, sensor_database_url).unwrap();
 
         AppData {
-            pool, sensor_pool, contacter,
+            pool, sensor_pool, contacter, quota_bank,
             graphql_schema: Arc::new(create_schema()),
-            auth_cache: security::AuthCache::new(password_secret_key)
+            auth_cache: security::AuthCache::new(password_secret_key),
         }
     }
 
